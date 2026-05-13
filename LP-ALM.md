@@ -29,6 +29,7 @@ render_with_liquid: false
 9. [Environment Strategy](#9-environment-strategy)
 10. [Onboarding Guide for New Teams](#10-onboarding-guide-for-new-teams)
 11. [Methodology Positioning](#11-methodology-positioning)
+12. [Platform Prerequisites & Complementary Guidance](#12-platform-prerequisites--complementary-guidance)
 
 ---
 
@@ -1539,6 +1540,80 @@ LP-ALM is not appropriate for:
 | Config Management Protocol | Written procedure for `_Config` handling (document in deliverable set, not source control) | Architect |
 
 **Estimated engagement scope:** 8–16 hours for greenfield setup; 24–40 hours for monolithic migration depending on solution complexity.
+
+---
+
+## 12. Platform Prerequisites & Complementary Guidance
+
+### 12.1 What LP-ALM Governs (and What It Does Not)
+
+LP-ALM governs what is **inside a solution artifact** and how that artifact moves between environments. It does not govern the platform layer — the tenant-level, environment-level, and infrastructure configuration that must exist before LP-ALM pipelines can run successfully.
+
+This boundary is intentional. Platform governance responsibilities — DLP policies, environment provisioning, Managed Environments configuration, monitoring infrastructure, BCDR — are typically owned by a central Power Platform admin team and are documented in Microsoft's own reference frameworks. Reproducing that guidance here would create a maintenance burden and risk drift from Microsoft's authoritative documentation.
+
+LP-ALM is **composable with** Microsoft's platform governance frameworks. It sits at the solution layer; the frameworks below sit at the platform layer.
+
+---
+
+### 12.2 Platform Prerequisites
+
+The following must be true in each target environment before LP-ALM pipelines will operate correctly. These are platform admin responsibilities, not LP-ALM responsibilities.
+
+| Prerequisite | Why LP-ALM Depends On It |
+|---|---|
+| Dataverse provisioned in the environment | All five LP-ALM layers target Dataverse; no Dataverse means no deployment target |
+| DLP policies configured | Connection references in `_Automation` will fail activation if required connectors are blocked or miscategorized |
+| Dataverse auditing enabled | Required for CM-3 change control evidence; must be set post-provisioning (off by default) |
+| Managed Environments enabled (Test, Prod) | Enforces the managed solution requirement; without it, the platform does not block direct ad-hoc customization |
+| AAD security group mapped to environment | Controls who can access the environment; LP-ALM security roles operate within this boundary |
+| Service principal created and assigned as application user | LP-ALM pipelines authenticate exclusively via service principal; this must exist before the first pipeline run |
+| ADO variable groups populated | Variable groups must contain environment URLs, client IDs, and key vault secret references before pipelines can execute |
+
+---
+
+### 12.3 Alignment with Power Platform Well-Architected
+
+[Power Platform Well-Architected](https://learn.microsoft.com/en-us/power-platform/well-architected/) is Microsoft's framework for designing workloads across five quality pillars. LP-ALM directly implements the guidance of two pillars and is complementary to the others.
+
+| Well-Architected Pillar | LP-ALM Coverage | Alignment |
+|---|---|---|
+| **Security** | `_Security`-first deployment, managed solutions in upper environments, zero secrets in source control, service principal auth, field-level security profiles | **Direct** — LP-ALM implements the Security pillar's core recommendations at the solution layer |
+| **Operational Excellence** | Per-layer CI/CD pipelines, PAC CLI source control workflow, PR-gated deployments, independent layer rollback, deployment order enforcement | **Direct** — LP-ALM implements the OE pillar's "deploy with confidence" and "safe deployment practices" recommendations |
+| **Reliability** | Managed solutions prevent ad-hoc change; per-layer rollback scopes the blast radius of a failed deployment | **Partial** — LP-ALM contributes to reliability through change control but does not address uptime targets, environment-level BCDR, or recovery objectives |
+| **Performance Efficiency** | Not addressed | **None** — see [Well-Architected: Performance Efficiency](https://learn.microsoft.com/en-us/power-platform/well-architected/performance-efficiency/) |
+| **Experience Optimization** | Not addressed | **None** — see [Well-Architected: Experience Optimization](https://learn.microsoft.com/en-us/power-platform/well-architected/experience-optimization/) |
+
+Use the [Power Platform Well-Architected assessment](https://aka.ms/powa/assessment) to evaluate your workload across all five pillars alongside LP-ALM.
+
+---
+
+### 12.4 Alignment with Power Platform Landing Zones
+
+[Power Platform Landing Zones](https://github.com/microsoft/industry/tree/main/foundations/powerPlatform) is Microsoft's architecture and design methodology for provisioning and governing Power Platform environments at enterprise scale. LP-ALM and Landing Zones address different layers of the same stack.
+
+| Landing Zones Design Area | LP-ALM Coverage | For Guidance Beyond LP-ALM |
+|---|---|---|
+| Identity & Access Management | LP-ALM defines service principal requirements and security role structure | Use Landing Zones for AAD group design, PIM, and conditional access |
+| Security, Governance & Compliance | LP-ALM implements solution-layer secrets hygiene and managed solution enforcement | Use Landing Zones for DLP policy baseline, tenant isolation, and connector classification |
+| Environments | LP-ALM defines Dev/Test/Prod deployment model and managed vs. unmanaged solution placement | Use Landing Zones for environment provisioning strategy, Managed Environments enablement, and capacity planning |
+| Management & Monitoring | Not addressed by LP-ALM | Use Landing Zones + Application Insights integration, CoE Starter Kit, and Dataverse auditing guidance |
+| Platform Automation & DevOps | LP-ALM provides solution deployment pipeline templates and PAC CLI workflow | Landing Zones governs environment provisioning pipelines; LP-ALM governs solution deployment pipelines — both apply |
+| Business Continuity & Disaster Recovery | Not addressed by LP-ALM | Use Landing Zones BCDR guidance for environment backup and restore strategy |
+| Connectivity & Interoperability | Not addressed by LP-ALM | Use Landing Zones for on-premises data gateway and VNet data gateway configuration |
+
+> **Note:** The Power Platform Landing Zones reference implementation (`microsoft/industry`) was archived in March 2025. The design principles and critical design areas remain valid reference material.
+
+---
+
+### 12.5 Recommended Reading Order
+
+For teams adopting LP-ALM in an enterprise or government context:
+
+1. **[Power Platform Landing Zones](https://github.com/microsoft/industry/tree/main/foundations/powerPlatform)** — establish the platform foundation: environments, DLP policies, IAM, monitoring infrastructure
+2. **LP-ALM** — structure your solution decomposition and deployment pipeline within that foundation
+3. **[Power Platform Well-Architected](https://learn.microsoft.com/en-us/power-platform/well-architected/)** — validate the completed workload design against quality pillars
+
+LP-ALM assumes Landing Zones prerequisites are met. Well-Architected provides the evaluation lens once the workload is built.
 
 ---
 

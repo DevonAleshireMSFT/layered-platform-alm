@@ -78,6 +78,25 @@ LP-ALM is designed for FedRAMP and GCC High deployments and maps directly to NIS
 | [Onboarding Checklist]({{ site.baseurl }}/onboarding/) | New team and new project setup steps |
 | [Component Placement]({{ site.baseurl }}/component-placement/) | Decision tree: where does this component go? |
 | [Security Role Matrix]({{ site.baseurl }}/security-roles/) | Privilege matrix template with Append/Append To guidance |
+
+---
+
+## Framework Alignment
+
+LP-ALM governs what is inside a solution artifact and how it moves between environments. Platform-layer concerns — DLP policies, environment provisioning, monitoring, BCDR — are out of scope by design and are covered by Microsoft's platform governance frameworks.
+
+| Framework | Relationship to LP-ALM |
+|---|---|
+| [Power Platform Well-Architected](https://learn.microsoft.com/en-us/power-platform/well-architected/) | LP-ALM directly implements the **Security** and **Operational Excellence** pillars at the solution layer. Use the [Well-Architected assessment](https://aka.ms/powa/assessment) to evaluate the full workload across all five pillars. |
+| [Power Platform Landing Zones](https://github.com/microsoft/industry/tree/main/foundations/powerPlatform) | Landing Zones governs environment provisioning, DLP policies, and IAM. LP-ALM governs solution deployment within those environments. For enterprise deployments, both apply. |
+| [CoE Starter Kit](https://learn.microsoft.com/en-us/power-platform/guidance/coe/starter-kit) | Compatible. CoE Starter Kit addresses tenant governance and citizen developer management. LP-ALM addresses pro-developer solution ALM. |
+
+**Recommended reading order for enterprise adoption:**
+1. Power Platform Landing Zones — establish the platform foundation
+2. LP-ALM — structure solution deployment within that foundation
+3. Power Platform Well-Architected — validate the workload design
+
+See [Section 12 of the methodology]({{ site.baseurl }}/methodology/#12-platform-prerequisites--complementary-guidance) for the full alignment mapping and platform prerequisites.
 | [Environment Register]({{ site.baseurl }}/environment-register/) | Environment inventory template |
 
 ---

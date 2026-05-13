@@ -117,6 +117,21 @@ The complete LP-ALM methodology is in [LP-ALM.md](LP-ALM.md). It covers:
 9. Environment Strategy
 10. Onboarding Guide for New Teams
 11. Methodology Positioning (how to present LP-ALM to executives, technical teams, and security officers)
+12. Platform Prerequisites & Complementary Guidance (framework alignment, platform admin dependencies)
+
+---
+
+## Framework Alignment
+
+LP-ALM is designed to sit **inside** Microsoft's broader platform governance frameworks, not alongside them. It governs what is inside a solution artifact and how it moves between environments. Platform-layer concerns — environment provisioning, DLP policies, monitoring, BCDR — are out of scope by design.
+
+| Framework | Relationship to LP-ALM |
+|---|---|
+| [Power Platform Well-Architected](https://learn.microsoft.com/en-us/power-platform/well-architected/) | LP-ALM directly implements the **Security** and **Operational Excellence** pillars at the solution layer. Use Well-Architected to evaluate the full workload across all five pillars. |
+| [Power Platform Landing Zones](https://github.com/microsoft/industry/tree/main/foundations/powerPlatform) | Landing Zones governs environment provisioning, DLP, and IAM. LP-ALM governs solution deployment within those environments. Both apply to enterprise deployments. |
+| [Microsoft Power Platform CoE Starter Kit](https://learn.microsoft.com/en-us/power-platform/guidance/coe/starter-kit) | Compatible. CoE Starter Kit addresses tenant governance and citizen developer management. LP-ALM addresses pro-developer solution ALM. |
+
+See [LP-ALM.md Section 12](LP-ALM.md#12-platform-prerequisites--complementary-guidance) for the full alignment mapping and recommended reading order.
 
 ---
 
