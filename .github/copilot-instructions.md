@@ -1,35 +1,55 @@
-# GitHub Copilot Instructions — CPE C2IN System Tracker (SYSTRK)
+# GitHub Copilot Instructions — Layered Power Platform ALM (LP-ALM)
 #
 # This file is automatically read by GitHub Copilot in every chat session
 # in this repository.
 #
-# PROJECT: CPE C2IN System Tracker
-# PLATFORM: Power Platform / Dataverse — GCC High (armyeitaas)
-# PUBLISHER PREFIX: stk_ (legacy: mnpoc_ — never rename)
+# PROJECT: LP-ALM — Layered Power Platform ALM Methodology
+# PLATFORM: Microsoft Power Platform / Dataverse
+# TARGET: Enterprise and Government (GCC High / FedRAMP) deployments
 # -----------------------------------------------------------------------
 
 ## Project Context
 
 Before answering any question or generating any code in this repository,
-read `.ai/context.md`. It defines what this project is, its current state,
-and the rules that must always be followed.
+read `.ai/context.md`. It defines the LP-ALM methodology, the five-layer
+architecture, and the rules that must always be followed.
+
+This repository is a **methodology reference and template** — not a live
+Power Platform project. It contains:
+- The complete LP-ALM methodology document (`LP-ALM.md`)
+- Azure DevOps pipeline templates (`pipelines/`)
+- AI context files for project grounding (`.ai/`)
+- Documentation templates (`docs/`)
+
+When this repo is used as the foundation for an actual project, the
+placeholder values (`{ProjectCode}`, `{prefix}`, `{org}`) must be
+replaced with real values. The `.ai/` files are the first place to update.
 
 ## Rules That Always Apply
 
-- All net-new schema uses the `stk_` prefix. The `mnpoc_` prefix is legacy —
-  **never suggest renaming any mnpoc_ schema**.
-- The primary column schema name is always `stk_name`. Never suggest a custom
-  schema name for a primary column — only the display name changes.
-- `SYSTRK_Config` is **never committed to source control** and never included
-  in a deployment pipeline. It is always deployed manually per environment.
-- `stk_hardware` is the hardware catalog table. Do not suggest renaming it.
-- Tables are created in the maker portal first, then exported and unpacked via
-  PAC CLI. Do not suggest creating tables via code or direct import.
-- GCC High org URLs use `.crm.microsoftdynamics.us` — not `.crm.dynamics.com`.
-- Append and Append To privileges must always be set in security role definitions.
-- Dataverse teams must use "Direct User (Basic) access level and Team privileges".
-- "System" means a physical fielded asset. "System Profile" means the digital
-  blueprint. These are different entities — do not conflate them.
+- **`_Config` is never committed to source control and never included in
+  any pipeline.** This is the foundational security rule of LP-ALM. It
+  applies to this methodology repo and to every project that adopts it.
+- **`_Security` deploys first.** Always. In every environment. Never
+  suggest reversing or skipping this order.
+- **`_UI` cannot contain schema** (tables, columns, relationships). If
+  a component defines data structure, it belongs in `_Core`.
+- **Upper environments (Test, Prod) receive managed solutions only.**
+  Dev receives unmanaged. Do not suggest deploying managed to Dev.
+- **Connection references must use service accounts, not personal
+  credentials.** No personal email addresses in connection bindings.
+- **GCC High org URLs use `.crm.microsoftdynamics.us`** — not
+  `.crm.dynamics.com`. All pipeline environment URLs must use the
+  correct sovereign cloud domain.
+- **The pipeline service principal requires the built-in System
+  Administrator role** to deploy security roles (`prvWriteRole`
+  requirement). This cannot be granted to a custom role.
+- **Append and Append To privileges must always be explicitly set**
+  in every security role for every relationship a role traverses.
+- **Dataverse Owner Teams use "Direct User (Basic) access level and
+  Team privileges"** — not Business Unit level.
+- **Never generate, suggest, or output credentials, secrets, API keys,
+  or connection strings in any form.**
 
 ## Where to Find More Context
 
@@ -38,23 +58,37 @@ corresponding file before generating a response:
 
 | Topic | File |
 |-------|------|
-| Domain terminology (System, Profile, Fielding, Component) | `.ai/domain.md` |
-| Table definitions, relationships, column inventory | `.ai/data-model.md` |
-| Security roles, privilege matrices, AAD groups | `.ai/security.md` |
-| Pipeline, PAC CLI workflow, deployment standards | `.ai/pipelines.md` |
-| Technical debt and deferred decisions | `.ai/debt.md` |
-| Architecture decisions and rationale | `.ai/decisions/` |
+| Layer definitions, component placement rules | `.ai/layers.md` |
+| Naming conventions, prefixes, solution names | `.ai/conventions.md` |
+| Table and column inventory (project-specific) | `.ai/schema.md` |
+| Full methodology (all 11 sections) | `LP-ALM.md` |
+| Security role privilege matrix | `docs/security-role-matrix-template.md` |
+| Where does component X go? | `docs/component-placement-decision-tree.md` |
+| Environment URLs, service principals, teams | `docs/environment-register-template.md` |
+| New project or developer onboarding | `docs/onboarding-checklist.md` |
 
 ## What You Must Never Do
 
 - Generate, suggest, or output credentials, connection strings, API keys,
   or secrets in any form.
-- Rename any `mnpoc_` table, column, or component.
-- Rename `stk_hardware` to `stk_partnumber` or any other name.
-- Include `SYSTRK_Config` in any pipeline, script, or deployment instruction.
-- Suggest custom schema names for primary columns — always leave as `stk_name`.
+- Suggest committing `_Config` (or any `*_Config*` solution artifact) to
+  source control or including it in a pipeline.
+- Suggest deploying `_Automation` or `_UI` before `_Security` and `_Core`.
+- Suggest adding schema (tables, columns) to the `_UI` solution.
+- Suggest using personal credentials in a connection reference.
+- Suggest deploying a managed solution to the Dev environment.
 - Treat `.ai/` documents as the authoritative source of truth — they are
-  working context documents derived from committed source files.
+  working context documents maintained alongside the methodology.
+
+## When Working on Pipeline YAML Files
+
+- All pipeline YAML files reference `SYSTRK` and `SYSTRK-*` variable
+  groups as illustrative placeholders. When helping adapt these for a
+  real project, replace `SYSTRK` with the actual `{ProjectCode}`.
+- The `--cloud UsGovHigh` flag must be present in all `pac auth create`
+  commands targeting GCC High environments.
+- `_Config` must never appear in any pipeline step, variable, or artifact
+  reference — not even as a comment suggesting it could be added.
 
 ## After Making Changes
 
@@ -66,11 +100,12 @@ commit message following the Conventional Commits format:
   <body — bullet list of what changed and why>
 
 Use these types: feat, fix, docs, chore, ci, refactor, style, test
-Use the solution or layer as the scope where applicable
-  (e.g. core, security, ui, automation, pipelines, ai-context)
+Use the layer or repo area as the scope where applicable
+  (e.g. methodology, pipelines, ai-context, docs, security, core)
 
 ## Confirming Context at Session Start
 
 When a user starts a new conversation, confirm you have read `.ai/context.md`
-by briefly stating: "CPE C2IN System Tracker (SYSTRK)" and one active Key Rule
-from the context file. This confirms grounding before the first response.
+by briefly stating: "LP-ALM Methodology Repository" and one active rule
+from the Rules That Always Apply section above. This confirms grounding
+before the first response.
