@@ -142,3 +142,5 @@ See [LP-ALM.md Section 12](LP-ALM.md#12-platform-prerequisites--complementary-gu
 
 *LP-ALM v1.0 | May 2026*
 
+*Built with assistance from GitHub Copilot (Claude Sonnet 4.6). All output reviewed by a human.*
+

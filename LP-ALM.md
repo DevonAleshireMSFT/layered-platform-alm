@@ -392,6 +392,27 @@ Violation of this rule causes a hard dependency failure: `_UI` would import a sc
 
 ---
 
+### 2.6 Adapting the Layer Structure
+
+The five-layer sequence is a framework, not a rigid schema. Projects may extend or specialize it to fit their workload — provided the core rules hold: `_Security` always deploys first, `_Config` always remains manual, and no schema ever enters `_UI`.
+
+**Multiple UI solutions** — When a project has two distinct front-end applications (for example, a user-facing app and an admin app with elevated capabilities), both live in the UI layer as separate solutions:
+
+```
+_Security → _Core → _Config → _Automation → _UI
+                                           → _Admin_UI
+```
+
+Both UI solutions share the same `_Core` schema, `_Automation` flows, and `_Config` environment variables. Access control between the two apps is enforced in `_Security` — the admin role grants write access to privileged tables; the standard role does not. Both deploy in the UI phase of the pipeline. This is the appropriate pattern when the admin and user experiences are distinct enough to warrant separate canvas apps or model-driven app configurations but are not separate enough to justify independent `_Core` schemas.
+
+**Azure integration** — When flows call Azure services, the Power Platform-side artifacts (custom connectors, connection references, flows) stay in `_Automation`. If the integration is large, shared across solutions, or has its own release cadence, a `_Integration` layer can be inserted between `_Config` and `_Automation`. See [Appendix A](#appendix-a-azure-integration-layer-guidance).
+
+**Multiple applications sharing a data model** — When two or more applications in the same environment share tables, the schema is centralized in a shared `_Core` owned by a platform team. Each application then provides its own `_Automation` and `_UI` layers that declare a solution dependency on the shared `_Core`. Per-application `_Config` values remain independent.
+
+The test for any structural adaptation: does the new solution have a distinct ownership boundary, a distinct deployment dependency, or a distinct release cadence? If any of those are true, it warrants its own named solution in the appropriate layer position.
+
+---
+
 ## 3. Security Architecture Rationale
 
 ### 3.1 Security-First Deployment as a Structural Control
