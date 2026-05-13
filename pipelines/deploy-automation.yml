@@ -1,0 +1,118 @@
+# ============================================================
+# LP-ALM: Deploy _Automation Layer (Individual)
+# deploy-automation.yml
+#
+# Deploys only the _Automation (flows + connection references)
+# layer to the target environment.
+#
+# Pre-conditions:
+#   1. _Security must already be deployed to the target
+#   2. _Core must already be deployed to the target
+#   3. _Config must have been MANUALLY applied to the target
+#      (environment variable values + connection reference bindings)
+#
+# WARNING: If _Config has not been applied, flows may fail to
+# activate. The pipeline cannot verify _Config is in place —
+# this is an operational responsibility confirmed out-of-band.
+# ============================================================
+
+trigger: none  # Manually triggered or called from deploy-all.yml
+
+parameters:
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'test'
+    values:
+      - test
+      - prod
+
+  - name: configConfirmed
+    displayName: '_Config manually applied to target? (must confirm before proceeding)'
+    type: boolean
+    default: false
+
+variables:
+  - group: SYSTRK-Common
+
+  - ${{ if eq(parameters.targetEnvironment, 'test') }}:
+    - group: SYSTRK-Test
+    - name: EnvironmentUrl
+      value: $(Test.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Test.ApplicationId)
+    - name: TenantId
+      value: $(Test.TenantId)
+    - name: ClientSecret
+      value: $(Test.ClientSecret)
+
+  - ${{ if eq(parameters.targetEnvironment, 'prod') }}:
+    - group: SYSTRK-Prod
+    - name: EnvironmentUrl
+      value: $(Prod.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Prod.ApplicationId)
+    - name: TenantId
+      value: $(Prod.TenantId)
+    - name: ClientSecret
+      value: $(Prod.ClientSecret)
+
+  - name: SolutionVersion
+    value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
+
+  - name: OutputPath
+    value: '$(Build.ArtifactStagingDirectory)/solutions'
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  # Gate: Fail fast if _Config was not confirmed
+  - powershell: |
+      if (-not [System.Convert]::ToBoolean("${{ parameters.configConfirmed }}")) {
+        Write-Host "##vso[task.logissue type=error]BLOCKED: _Config not confirmed for ${{ parameters.targetEnvironment }}."
+        Write-Host "##vso[task.logissue type=error]Before deploying _Automation, manually import $(ProjectCode)_Config"
+        Write-Host "##vso[task.logissue type=error]and set configConfirmed=true when running this pipeline."
+        Write-Host "##vso[task.complete result=Failed]"
+        exit 1
+      }
+      Write-Host "_Config confirmed. Proceeding with _Automation deployment."
+    displayName: 'Gate: _Config confirmation check'
+
+  - task: PowerPlatformToolInstaller@2
+    displayName: 'Install Power Platform Tools (PAC CLI)'
+    inputs:
+      DefaultVersion: true
+
+  - script: |
+      pac solution pack ^
+        --zipfile "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Automation/src" ^
+        --packagetype Managed ^
+        --solutionversion "$(SolutionVersion)"
+    displayName: 'Pack $(ProjectCode)_Automation (Managed)'
+
+  - script: |
+      pac auth create ^
+        --kind ServicePrincipal ^
+        --applicationId "$(ApplicationId)" ^
+        --clientSecret "$(ClientSecret)" ^
+        --tenant "$(TenantId)" ^
+        --cloud UsGovHigh ^
+        --environment "$(EnvironmentUrl)"
+    displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+    env:
+      ClientSecret: $(ClientSecret)
+
+  - script: |
+      pac solution import ^
+        --path "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
+        --activate-plugins true ^
+        --force-overwrite true ^
+        --publish-changes true ^
+        --skip-dependency-check false
+    displayName: 'Import $(ProjectCode)_Automation to ${{ parameters.targetEnvironment }}'
+
+  - publish: $(OutputPath)
+    artifact: 'automation-${{ parameters.targetEnvironment }}-$(Build.BuildId)'
+    displayName: 'Publish Solution Artifact'

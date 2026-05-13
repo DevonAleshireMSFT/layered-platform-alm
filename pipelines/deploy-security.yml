@@ -1,0 +1,97 @@
+# ============================================================
+# LP-ALM: Deploy _Security Layer (Individual)
+# deploy-security.yml
+#
+# Deploys only the _Security layer to the target environment.
+# Use this for:
+#   - Security role hotfixes
+#   - Adding new roles without touching other layers
+#   - First-time environment setup (Security is always first)
+#
+# Requires System Administrator role on the service principal
+# (Dataverse requires prvWriteRole for security role deployment).
+# ============================================================
+
+trigger: none  # Manually triggered or called from deploy-all.yml
+
+parameters:
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'test'
+    values:
+      - test
+      - prod
+
+variables:
+  - group: SYSTRK-Common
+
+  - ${{ if eq(parameters.targetEnvironment, 'test') }}:
+    - group: SYSTRK-Test
+    - name: EnvironmentUrl
+      value: $(Test.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Test.ApplicationId)
+    - name: TenantId
+      value: $(Test.TenantId)
+    - name: ClientSecret
+      value: $(Test.ClientSecret)
+
+  - ${{ if eq(parameters.targetEnvironment, 'prod') }}:
+    - group: SYSTRK-Prod
+    - name: EnvironmentUrl
+      value: $(Prod.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Prod.ApplicationId)
+    - name: TenantId
+      value: $(Prod.TenantId)
+    - name: ClientSecret
+      value: $(Prod.ClientSecret)
+
+  - name: SolutionVersion
+    value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
+
+  - name: OutputPath
+    value: '$(Build.ArtifactStagingDirectory)/solutions'
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  - task: PowerPlatformToolInstaller@2
+    displayName: 'Install Power Platform Tools (PAC CLI)'
+    inputs:
+      DefaultVersion: true
+
+  - script: |
+      pac solution pack ^
+        --zipfile "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Security/src" ^
+        --packagetype Managed ^
+        --solutionversion "$(SolutionVersion)"
+    displayName: 'Pack $(ProjectCode)_Security (Managed)'
+
+  - script: |
+      pac auth create ^
+        --kind ServicePrincipal ^
+        --applicationId "$(ApplicationId)" ^
+        --clientSecret "$(ClientSecret)" ^
+        --tenant "$(TenantId)" ^
+        --cloud UsGovHigh ^
+        --environment "$(EnvironmentUrl)"
+    displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+    env:
+      ClientSecret: $(ClientSecret)
+
+  - script: |
+      pac solution import ^
+        --path "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
+        --activate-plugins true ^
+        --force-overwrite true ^
+        --publish-changes true ^
+        --skip-dependency-check false
+    displayName: 'Import $(ProjectCode)_Security to ${{ parameters.targetEnvironment }}'
+
+  - publish: $(OutputPath)
+    artifact: 'security-${{ parameters.targetEnvironment }}-$(Build.BuildId)'
+    displayName: 'Publish Solution Artifact'

@@ -1,0 +1,310 @@
+# ============================================================
+# LP-ALM: Full Deploy Pipeline (All Layers)
+# deploy-all.yml
+#
+# Deploys all four pipeline-managed layers in dependency order:
+#   _Security → _Core → _Automation → _UI
+#
+# IMPORTANT: _Config is NOT included. It must be manually
+# applied to the target environment BEFORE this pipeline runs
+# if any environment variable values are new or changed.
+#
+# Triggers on push to 'main' branch (Prod deploy).
+# Set targetEnvironment parameter to 'test' for Test deploy.
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - solutions/**
+      - pipelines/**
+
+# Run on PR (validation only — no deploy)
+pr: none  # PR validation is handled by pr-validation.yml
+
+parameters:
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'test'
+    values:
+      - test
+      - prod
+
+  - name: solutionVersionMinor
+    displayName: 'Minor Version (leave 0 to use pipeline variable)'
+    type: number
+    default: 0
+
+  - name: deployLayers
+    displayName: 'Layers to deploy (comma-separated: Security,Core,Automation,UI)'
+    type: string
+    default: 'Security,Core,Automation,UI'
+
+variables:
+  - group: SYSTRK-Common
+
+  # Load environment-specific variable group based on target
+  - ${{ if eq(parameters.targetEnvironment, 'test') }}:
+    - group: SYSTRK-Test
+    - name: EnvironmentUrl
+      value: $(Test.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Test.ApplicationId)
+    - name: TenantId
+      value: $(Test.TenantId)
+    - name: ClientSecret
+      value: $(Test.ClientSecret)
+
+  - ${{ if eq(parameters.targetEnvironment, 'prod') }}:
+    - group: SYSTRK-Prod
+    - name: EnvironmentUrl
+      value: $(Prod.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Prod.ApplicationId)
+    - name: TenantId
+      value: $(Prod.TenantId)
+    - name: ClientSecret
+      value: $(Prod.ClientSecret)
+
+  - name: SolutionVersion
+    value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
+
+  - name: OutputPath
+    value: '$(Build.ArtifactStagingDirectory)/solutions'
+
+pool:
+  vmImage: 'windows-latest'
+
+# ============================================================
+# STAGE 1: Deploy to Test
+# ============================================================
+stages:
+  - stage: Deploy_${{ parameters.targetEnvironment }}
+    displayName: 'Deploy to ${{ parameters.targetEnvironment }}'
+    jobs:
+
+      # ----------------------------------------------------------
+      # JOB 1: Deploy _Security layer
+      # ----------------------------------------------------------
+      - job: Deploy_Security
+        displayName: 'Deploy _Security Layer'
+        condition: contains('${{ parameters.deployLayers }}', 'Security')
+        steps:
+          - template: steps/install-pac-cli.yml
+
+          - script: |
+              pac solution pack ^
+                --zipfile "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
+                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Security/src" ^
+                --packagetype Managed ^
+                --solutionversion "$(SolutionVersion)"
+            displayName: 'Pack $(ProjectCode)_Security (Managed)'
+
+          - script: |
+              pac auth create ^
+                --kind ServicePrincipal ^
+                --applicationId "$(ApplicationId)" ^
+                --clientSecret "$(ClientSecret)" ^
+                --tenant "$(TenantId)" ^
+                --cloud UsGovHigh ^
+                --environment "$(EnvironmentUrl)"
+            displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+            env:
+              ClientSecret: $(ClientSecret)
+
+          - script: |
+              pac solution import ^
+                --path "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
+                --activate-plugins true ^
+                --force-overwrite true ^
+                --publish-changes true ^
+                --skip-dependency-check false
+            displayName: 'Import $(ProjectCode)_Security to ${{ parameters.targetEnvironment }}'
+
+      # ----------------------------------------------------------
+      # JOB 2: Deploy _Core layer (depends on Security)
+      # ----------------------------------------------------------
+      - job: Deploy_Core
+        displayName: 'Deploy _Core Layer'
+        dependsOn: Deploy_Security
+        condition: |
+          and(
+            in(dependencies.Deploy_Security.result, 'Succeeded', 'Skipped'),
+            contains('${{ parameters.deployLayers }}', 'Core')
+          )
+        steps:
+          - template: steps/install-pac-cli.yml
+
+          - script: |
+              pac solution pack ^
+                --zipfile "$(OutputPath)/$(ProjectCode)_Core_managed.zip" ^
+                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Core/src" ^
+                --packagetype Managed ^
+                --solutionversion "$(SolutionVersion)"
+            displayName: 'Pack $(ProjectCode)_Core (Managed)'
+
+          - script: |
+              pac auth create ^
+                --kind ServicePrincipal ^
+                --applicationId "$(ApplicationId)" ^
+                --clientSecret "$(ClientSecret)" ^
+                --tenant "$(TenantId)" ^
+                --cloud UsGovHigh ^
+                --environment "$(EnvironmentUrl)"
+            displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+            env:
+              ClientSecret: $(ClientSecret)
+
+          - script: |
+              pac solution import ^
+                --path "$(OutputPath)/$(ProjectCode)_Core_managed.zip" ^
+                --activate-plugins true ^
+                --force-overwrite true ^
+                --publish-changes true ^
+                --skip-dependency-check false
+            displayName: 'Import $(ProjectCode)_Core to ${{ parameters.targetEnvironment }}'
+
+      # ----------------------------------------------------------
+      # CONFIG GATE: Manual validation step
+      # This is a documentation gate only — the pipeline cannot
+      # enforce that _Config has been applied, but this step
+      # records the expectation explicitly.
+      # ----------------------------------------------------------
+      - job: Config_Gate_Acknowledgment
+        displayName: '[Manual Gate] Confirm _Config applied to ${{ parameters.targetEnvironment }}'
+        dependsOn: Deploy_Core
+        condition: |
+          and(
+            in(dependencies.Deploy_Core.result, 'Succeeded', 'Skipped'),
+            contains('${{ parameters.deployLayers }}', 'Automation')
+          )
+        pool: server  # Runs as server job for manual validation
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Confirm: _Config manually applied to ${{ parameters.targetEnvironment }}'
+            inputs:
+              notifyUsers: ''
+              instructions: |
+                REQUIRED: Before approving, confirm that $(ProjectCode)_Config has been
+                manually imported to the $(EnvironmentUrl) environment.
+
+                This includes:
+                - All environment variable values set for this environment
+                - All connection references bound to service account connections
+                - No personal credentials used in any connection
+
+                _Config is NEVER deployed by this pipeline. It must be done manually.
+                If _Config is not applied, Automation layer flows will fail to activate.
+
+                Approve only when _Config is confirmed in place.
+              onTimeout: 'reject'
+            timeoutInMinutes: 1440  # 24 hours to complete manual step
+
+      # ----------------------------------------------------------
+      # JOB 3: Deploy _Automation layer (depends on Core + Config gate)
+      # ----------------------------------------------------------
+      - job: Deploy_Automation
+        displayName: 'Deploy _Automation Layer'
+        dependsOn:
+          - Deploy_Core
+          - Config_Gate_Acknowledgment
+        condition: |
+          and(
+            in(dependencies.Deploy_Core.result, 'Succeeded', 'Skipped'),
+            in(dependencies.Config_Gate_Acknowledgment.result, 'Succeeded', 'Skipped'),
+            contains('${{ parameters.deployLayers }}', 'Automation')
+          )
+        steps:
+          - template: steps/install-pac-cli.yml
+
+          - script: |
+              pac solution pack ^
+                --zipfile "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
+                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Automation/src" ^
+                --packagetype Managed ^
+                --solutionversion "$(SolutionVersion)"
+            displayName: 'Pack $(ProjectCode)_Automation (Managed)'
+
+          - script: |
+              pac auth create ^
+                --kind ServicePrincipal ^
+                --applicationId "$(ApplicationId)" ^
+                --clientSecret "$(ClientSecret)" ^
+                --tenant "$(TenantId)" ^
+                --cloud UsGovHigh ^
+                --environment "$(EnvironmentUrl)"
+            displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+            env:
+              ClientSecret: $(ClientSecret)
+
+          - script: |
+              pac solution import ^
+                --path "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
+                --activate-plugins true ^
+                --force-overwrite true ^
+                --publish-changes true ^
+                --skip-dependency-check false
+            displayName: 'Import $(ProjectCode)_Automation to ${{ parameters.targetEnvironment }}'
+
+      # ----------------------------------------------------------
+      # JOB 4: Deploy _UI layer (depends on Automation)
+      # ----------------------------------------------------------
+      - job: Deploy_UI
+        displayName: 'Deploy _UI Layer'
+        dependsOn: Deploy_Automation
+        condition: |
+          and(
+            in(dependencies.Deploy_Automation.result, 'Succeeded', 'Skipped'),
+            contains('${{ parameters.deployLayers }}', 'UI')
+          )
+        steps:
+          - template: steps/install-pac-cli.yml
+
+          - script: |
+              pac solution pack ^
+                --zipfile "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
+                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src" ^
+                --packagetype Managed ^
+                --solutionversion "$(SolutionVersion)"
+            displayName: 'Pack $(ProjectCode)_UI (Managed)'
+
+          - script: |
+              pac auth create ^
+                --kind ServicePrincipal ^
+                --applicationId "$(ApplicationId)" ^
+                --clientSecret "$(ClientSecret)" ^
+                --tenant "$(TenantId)" ^
+                --cloud UsGovHigh ^
+                --environment "$(EnvironmentUrl)"
+            displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+            env:
+              ClientSecret: $(ClientSecret)
+
+          - script: |
+              pac solution import ^
+                --path "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
+                --activate-plugins true ^
+                --force-overwrite true ^
+                --publish-changes true ^
+                --skip-dependency-check false
+            displayName: 'Import $(ProjectCode)_UI to ${{ parameters.targetEnvironment }}'
+
+      # ----------------------------------------------------------
+      # FINAL: Publish artifacts for rollback reference
+      # ----------------------------------------------------------
+      - job: Publish_Artifacts
+        displayName: 'Publish Solution Artifacts'
+        dependsOn:
+          - Deploy_Security
+          - Deploy_Core
+          - Deploy_Automation
+          - Deploy_UI
+        condition: always()
+        steps:
+          - publish: $(OutputPath)
+            artifact: 'solutions-${{ parameters.targetEnvironment }}-$(Build.BuildId)'
+            displayName: 'Publish solution ZIPs as pipeline artifact'

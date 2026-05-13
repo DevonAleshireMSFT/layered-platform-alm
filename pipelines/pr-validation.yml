@@ -1,0 +1,127 @@
+# ============================================================
+# LP-ALM: PR Validation Pipeline
+# pr-validation.yml
+#
+# Runs on every Pull Request to 'test' or 'main'.
+# Does NOT deploy to any environment.
+# Validates that all four pipeline-managed layers can be
+# packed without error — catches broken solution XML before
+# it reaches a deployment pipeline.
+#
+# _Config is never validated here (it is not in source control).
+# ============================================================
+
+trigger: none  # Not triggered by direct pushes — PRs only
+
+pr:
+  branches:
+    include:
+      - test
+      - main
+  paths:
+    include:
+      - solutions/**
+      - pipelines/**
+
+variables:
+  - group: SYSTRK-Common
+  - name: OutputPath
+    value: '$(Build.ArtifactStagingDirectory)/validation'
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  # ----------------------------------------------------------------
+  # Install PAC CLI
+  # ----------------------------------------------------------------
+  - task: PowerPlatformToolInstaller@2
+    displayName: 'Install Power Platform Tools (PAC CLI)'
+    inputs:
+      DefaultVersion: true
+
+  # ----------------------------------------------------------------
+  # Validate: Pack _Security (Managed)
+  # ----------------------------------------------------------------
+  - script: |
+      pac solution pack ^
+        --zipfile "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Security/src" ^
+        --packagetype Managed
+    displayName: 'Validate Pack: $(ProjectCode)_Security'
+    continueOnError: false
+
+  # ----------------------------------------------------------------
+  # Validate: Pack _Core (Managed)
+  # ----------------------------------------------------------------
+  - script: |
+      pac solution pack ^
+        --zipfile "$(OutputPath)/$(ProjectCode)_Core_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Core/src" ^
+        --packagetype Managed
+    displayName: 'Validate Pack: $(ProjectCode)_Core'
+    continueOnError: false
+
+  # ----------------------------------------------------------------
+  # Validate: Pack _Automation (Managed)
+  # ----------------------------------------------------------------
+  - script: |
+      pac solution pack ^
+        --zipfile "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Automation/src" ^
+        --packagetype Managed
+    displayName: 'Validate Pack: $(ProjectCode)_Automation'
+    continueOnError: false
+
+  # ----------------------------------------------------------------
+  # Validate: Pack _UI (Managed)
+  # ----------------------------------------------------------------
+  - script: |
+      pac solution pack ^
+        --zipfile "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src" ^
+        --packagetype Managed
+    displayName: 'Validate Pack: $(ProjectCode)_UI'
+    continueOnError: false
+
+  # ----------------------------------------------------------------
+  # Schema Contamination Check: Verify _UI contains no Entities
+  # ----------------------------------------------------------------
+  - powershell: |
+      $uiSrcPath = "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src/Entities"
+      if (Test-Path $uiSrcPath) {
+        $entities = Get-ChildItem -Path $uiSrcPath -Recurse -File
+        if ($entities.Count -gt 0) {
+          Write-Host "##vso[task.logissue type=error]SCHEMA CONTAMINATION DETECTED in _UI layer."
+          Write-Host "##vso[task.logissue type=error]The following schema components were found in $(ProjectCode)_UI/src/Entities/ and must be moved to $(ProjectCode)_Core:"
+          $entities | ForEach-Object { Write-Host "  - $($_.FullName)" }
+          Write-Host "##vso[task.complete result=Failed]"
+          exit 1
+        }
+      }
+      Write-Host "Schema contamination check passed: no Entities found in _UI layer."
+    displayName: 'Schema Contamination Check: _UI must not contain Entities'
+    continueOnError: false
+
+  # ----------------------------------------------------------------
+  # Config Exclusion Check: Verify _Config is not in source
+  # ----------------------------------------------------------------
+  - powershell: |
+      $configPath = "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Config"
+      if (Test-Path $configPath) {
+        Write-Host "##vso[task.logissue type=error]CRITICAL: $(ProjectCode)_Config directory found in source control."
+        Write-Host "##vso[task.logissue type=error]_Config must NEVER be committed. Remove it and update .gitignore."
+        Write-Host "##vso[task.complete result=Failed]"
+        exit 1
+      }
+      Write-Host "Config exclusion check passed: _Config is not in source control."
+    displayName: 'Config Exclusion Check: _Config must not be in source'
+    continueOnError: false
+
+  # ----------------------------------------------------------------
+  # Publish validation artifacts (for diff review on failures)
+  # ----------------------------------------------------------------
+  - publish: $(OutputPath)
+    artifact: 'pr-validation-$(Build.BuildId)'
+    displayName: 'Publish Validation Artifacts'
+    condition: always()

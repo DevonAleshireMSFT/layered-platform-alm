@@ -1,0 +1,116 @@
+# ============================================================
+# Power Platform / LP-ALM Repository — .gitignore
+# ============================================================
+
+# ----------------------------------------------------------------
+# _Config layer — NEVER committed. This is non-negotiable.
+# Environment-specific values must not enter source control.
+# ----------------------------------------------------------------
+solutions/*_Config/
+solutions/*_Config/**
+*_Config.zip
+*_Config_*.zip
+exports/*_Config*
+
+# ----------------------------------------------------------------
+# Packed solution ZIP files
+# The unpacked source in solutions/ is the source of truth.
+# ZIPs are build/export artifacts, not source.
+# ----------------------------------------------------------------
+*.zip
+exports/
+output/
+artifacts/
+
+# ----------------------------------------------------------------
+# PAC CLI authentication profiles
+# These contain credentials and are machine-local.
+# ----------------------------------------------------------------
+.pac/
+pac.auth.json
+authprofile*.json
+
+# ----------------------------------------------------------------
+# Environment-specific and secrets files
+# ----------------------------------------------------------------
+.env
+.env.*
+*.env
+secrets.json
+appsettings.*.json
+connectionstrings.json
+serviceaccount*.json
+
+# ----------------------------------------------------------------
+# Build output
+# ----------------------------------------------------------------
+bin/
+obj/
+.vs/
+*.user
+*.suo
+.idea/
+
+# ----------------------------------------------------------------
+# Node / npm (used by PCF controls)
+# ----------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+.cache/
+
+# ----------------------------------------------------------------
+# Power Apps CLI / Dataverse artifacts
+# ----------------------------------------------------------------
+*.msapp.bak
+*.backup
+Unmanaged/
+cdssdk.log
+CdsSdk.log
+
+# ----------------------------------------------------------------
+# Canvas app source unpacking artifacts
+# ----------------------------------------------------------------
+*.msapp
+# Note: Unpacked canvas app source IS committed — the .msapp binary is not.
+# Use 'pac canvas unpack' to unpack; commit the unpacked source.
+
+# ----------------------------------------------------------------
+# Operating system artifacts
+# ----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.lnk
+
+# ----------------------------------------------------------------
+# Temporary and editor files
+# ----------------------------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+.vscode/settings.json
+# .vscode/extensions.json is intentionally NOT excluded
+# (extension recommendations are useful to commit)
+
+# ----------------------------------------------------------------
+# Pipeline build staging
+# ----------------------------------------------------------------
+$(Build.ArtifactStagingDirectory)/
+BuildArtifacts/
+
+# ----------------------------------------------------------------
+# Test output
+# ----------------------------------------------------------------
+TestResults/
+coverage/
+*.trx
+
+# ----------------------------------------------------------------
+# Azure DevOps pipeline caches (agent-local)
+# ----------------------------------------------------------------
+.pipeline-cache/

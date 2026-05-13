@@ -1,0 +1,102 @@
+# ============================================================
+# LP-ALM: Deploy _UI Layer (Individual)
+# deploy-ui.yml
+#
+# Deploys only the _UI (apps, site maps, dashboards) layer
+# to the target environment.
+#
+# Pre-conditions:
+#   1. _Security deployed to target
+#   2. _Core deployed to target
+#   3. _Config manually applied to target
+#   4. _Automation deployed to target
+#
+# The _UI layer must NEVER contain schema (tables, columns).
+# If it does, the PR validation pipeline will catch it first.
+# If somehow it reaches here, the import will fail with a
+# dependency error pointing back to _Core.
+# ============================================================
+
+trigger: none  # Manually triggered or called from deploy-all.yml
+
+parameters:
+  - name: targetEnvironment
+    displayName: 'Target Environment'
+    type: string
+    default: 'test'
+    values:
+      - test
+      - prod
+
+variables:
+  - group: SYSTRK-Common
+
+  - ${{ if eq(parameters.targetEnvironment, 'test') }}:
+    - group: SYSTRK-Test
+    - name: EnvironmentUrl
+      value: $(Test.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Test.ApplicationId)
+    - name: TenantId
+      value: $(Test.TenantId)
+    - name: ClientSecret
+      value: $(Test.ClientSecret)
+
+  - ${{ if eq(parameters.targetEnvironment, 'prod') }}:
+    - group: SYSTRK-Prod
+    - name: EnvironmentUrl
+      value: $(Prod.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Prod.ApplicationId)
+    - name: TenantId
+      value: $(Prod.TenantId)
+    - name: ClientSecret
+      value: $(Prod.ClientSecret)
+
+  - name: SolutionVersion
+    value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
+
+  - name: OutputPath
+    value: '$(Build.ArtifactStagingDirectory)/solutions'
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  - task: PowerPlatformToolInstaller@2
+    displayName: 'Install Power Platform Tools (PAC CLI)'
+    inputs:
+      DefaultVersion: true
+
+  - script: |
+      pac solution pack ^
+        --zipfile "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src" ^
+        --packagetype Managed ^
+        --solutionversion "$(SolutionVersion)"
+    displayName: 'Pack $(ProjectCode)_UI (Managed)'
+
+  - script: |
+      pac auth create ^
+        --kind ServicePrincipal ^
+        --applicationId "$(ApplicationId)" ^
+        --clientSecret "$(ClientSecret)" ^
+        --tenant "$(TenantId)" ^
+        --cloud UsGovHigh ^
+        --environment "$(EnvironmentUrl)"
+    displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+    env:
+      ClientSecret: $(ClientSecret)
+
+  - script: |
+      pac solution import ^
+        --path "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
+        --activate-plugins true ^
+        --force-overwrite true ^
+        --publish-changes true ^
+        --skip-dependency-check false
+    displayName: 'Import $(ProjectCode)_UI to ${{ parameters.targetEnvironment }}'
+
+  - publish: $(OutputPath)
+    artifact: 'ui-${{ parameters.targetEnvironment }}-$(Build.BuildId)'
+    displayName: 'Publish Solution Artifact'
