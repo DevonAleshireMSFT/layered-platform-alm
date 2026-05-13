@@ -13,7 +13,8 @@ A security-first decomposition framework for Microsoft Power Platform in enterpr
 {: .fs-6 .fw-300 }
 
 [Read the Methodology]({{ site.baseurl }}/methodology/){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[View on GitHub](https://github.com/DevonAleshireMSFT/layered-platform-alm){: .btn .fs-5 .mb-4 .mb-md-0 }
+[View on GitHub](https://github.com/DevonAleshireMSFT/layered-platform-alm){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[AI Context Framework](https://devonaleshiremsft.github.io/ai-context-framework/){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
@@ -22,6 +23,9 @@ A security-first decomposition framework for Microsoft Power Platform in enterpr
 LP-ALM decomposes Power Platform solutions into five discrete, ordered deployment layers instead of a single monolithic solution. Each layer has a defined scope, deployment method, and dependency contract with the layers around it.
 
 The result: smaller deployment blast radius, security controls that precede schema, zero secrets in source control, and independent team ownership of each layer.
+
+{: .highlight }
+The `.ai/` directory in every LP-ALM project is an implementation of the [AI Context Framework](https://devonaleshiremsft.github.io/ai-context-framework/) — a structured approach to keeping AI assistants project-aware across every session. When adopting LP-ALM, implement the AI Context Framework in your repo and populate it with your project specifics.
 
 ---
 
