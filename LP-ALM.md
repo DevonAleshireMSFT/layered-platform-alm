@@ -4,6 +4,7 @@ title: LP-ALM Methodology
 nav_order: 2
 description: "Complete 11-section methodology reference: layer definitions, security architecture, PAC CLI workflow, ADO pipelines, security role design, and environment strategy."
 permalink: /methodology/
+render_with_liquid: false
 ---
 
 # Layered Power Platform ALM (LP-ALM)
