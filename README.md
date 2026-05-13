@@ -3,7 +3,7 @@
 [![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=github)](https://DevonAleshireMSFT.github.io/layered-platform-alm)
 [![AI Context Framework](https://img.shields.io/badge/AI%20Context-Framework-blueviolet)](https://devonaleshiremsft.github.io/ai-context-framework/)
 
-**[LP-ALM Methodology Site → DevonAleshireMSFT.github.io/layered-platform-alm](https://DevonAleshireMSFT.github.io/layered-platform-alm)**
+**[LP-ALM Methodology Site](https://DevonAleshireMSFT.github.io/layered-platform-alm)**
 
 A security-first decomposition framework for Microsoft Power Platform solutions in enterprise and government (GCC High / FedRAMP) environments.
 
