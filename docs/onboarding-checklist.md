@@ -1,3 +1,11 @@
+---
+layout: default
+title: Onboarding Checklist
+nav_order: 3
+description: "Step-by-step checklist for new developer onboarding, new project setup, and pre-pipeline-run validation."
+permalink: /onboarding/
+---
+
 # LP-ALM Onboarding Checklist
 
 > Use this checklist when onboarding a new team member, setting up a new project environment,

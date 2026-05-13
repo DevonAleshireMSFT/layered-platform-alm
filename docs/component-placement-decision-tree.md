@@ -1,3 +1,11 @@
+---
+layout: default
+title: Component Placement
+nav_order: 4
+description: "Decision tree for determining which LP-ALM layer any Power Platform component belongs in."
+permalink: /component-placement/
+---
+
 # Component Placement Decision Tree
 
 > Use this guide to determine which LP-ALM layer a Power Platform component belongs in.

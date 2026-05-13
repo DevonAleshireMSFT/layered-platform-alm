@@ -1,3 +1,11 @@
+---
+layout: default
+title: LP-ALM Methodology
+nav_order: 2
+description: "Complete 11-section methodology reference: layer definitions, security architecture, PAC CLI workflow, ADO pipelines, security role design, and environment strategy."
+permalink: /methodology/
+---
+
 # Layered Power Platform ALM (LP-ALM)
 ## A Security-First Decomposition Methodology for Enterprise Power Platform Deployments
 

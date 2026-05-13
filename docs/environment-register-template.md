@@ -1,3 +1,11 @@
+---
+layout: default
+title: Environment Register
+nav_order: 6
+description: "Template environment inventory: URLs, types, service principals, and _Config application log. No secrets."
+permalink: /environment-register/
+---
+
 # Environment Register
 
 > **What this is:** The authoritative reference for all Power Platform environments in this project.

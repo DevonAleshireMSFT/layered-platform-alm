@@ -1,3 +1,11 @@
+---
+layout: default
+title: Security Role Matrix
+nav_order: 5
+description: "Template privilege matrix for all LP-ALM custom security roles, including Append/Append To guidance and team configuration."
+permalink: /security-roles/
+---
+
 # Security Role Privilege Matrix Template
 
 > **Layer:** `_Security`  
