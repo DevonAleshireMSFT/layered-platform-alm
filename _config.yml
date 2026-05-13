@@ -19,6 +19,7 @@ exclude:
   - ".ai/"
   - "pipelines/"
   - "solutions/"
+  - "scripts/"
   - ".gitignore"
   - "exports/"
   - "output/"

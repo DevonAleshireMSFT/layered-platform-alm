@@ -423,7 +423,7 @@ The combination of managed solutions and the layer architecture means each layer
 
 | Control | Control Name | LP-ALM Implementation |
 |---|---|---|
-| AC-2 | Account Management | Service principal application users are provisioned and documented per environment. Personal credential binding is prohibited. Connection references are bound to managed service accounts. |
+| AC-2 | Account Management | Service principal application users are provisioned and documented per environment. Personal credential binding is prohibited in Test and above. Connection references are bound to managed service accounts where agency policy permits; when service accounts are prohibited by IAM policy (common in DoD), a formal account provisioning request must document the non-personal credential approved for each environment tier. |
 | AC-3 | Access Enforcement | Security roles deploy before schema (`_Security` first). Every table and column has a corresponding access control structure at all times. Managed solutions prevent unauthorized modification. |
 | AC-6 | Least Privilege | Security roles are designed per persona with minimum required privileges. Pipeline service principal uses only the built-in System Administrator role (required for `prvWriteRole`) — no over-privileging beyond platform requirement. |
 | CM-2 | Baseline Configuration | Source control contains the authoritative baseline for all four committed layers (`_Security`, `_Core`, `_Automation`, `_UI`). `_Config` is documented in configuration management records outside source control. |
@@ -462,13 +462,19 @@ https://yourorg.crm.microsoftdynamics.us
 
 All PAC CLI commands must use the GCC High URL. All connection references must point to `.crm.microsoftdynamics.us` endpoints. Connection reference values committed to source control (definitions only) should not embed URLs — environment-specific URLs belong in `_Config`.
 
-#### No Personal Credential Embedding
+#### Connection References and Service Account Constraints
 
-In GCC High, personal Microsoft accounts cannot authenticate to Power Platform. All connections must use:
-- Service principal application users (for pipeline automation)
-- Licensed service accounts with MFA configured (for manual operations, with just-in-time access)
+The best practice for connection references in all environments is a **non-interactive service account** — a licensed user account (not a service principal) with a stable credential, assigned only the `{ProjectCode} - Automation Service` security role, whose connections are used by all flows in that environment.
 
-The LP-ALM connection reference binding protocol (service accounts only, no personal credentials) satisfies this requirement by design.
+However, in many DoD agencies and classified programs, service accounts are restricted or prohibited by policy. Common constraints include CAC/PIV-only authentication requirements, zero-standing-access policies, or prohibitions on shared credentials for compliance reasons.
+
+**LP-ALM's position on this constraint:**
+- Service accounts are best practice and should be the default where agency policy permits
+- Where service accounts are prohibited, personal credential bindings are acceptable **only in individual dev and Integration Dev environments**
+- Test and above require a non-personal credential. If the agency's standard account provisioning process cannot provide a service account, the project team must formally request an IAM exception or equivalent managed identity, with documented approval authority
+- This is an agency IAM policy question, not an LP-ALM design question — LP-ALM defines the technical requirement; the project resolves it through agency channels
+
+See Section 5.6.9 for a full decision table and per-environment guidance on connection reference binding when service accounts are unavailable.
 
 #### Power Platform Admin Center for GCC High
 
@@ -758,7 +764,209 @@ The `.ai/` directory provides structured context for GitHub Copilot, Azure AI Fo
 
 ---
 
-## 6. PAC CLI Workflow
+## 5.6 Multi-Developer Workflows
+
+LP-ALM's export → unpack → commit cycle assumes a single developer working in a Dev environment at a given time. Dataverse has no checkout or lock mechanism — whoever exports last captures the current environment state, regardless of who made which change. In multi-developer teams this creates predictable failure modes that must be addressed by team topology and protocol.
+
+### 5.6.1 The Shared Dev Race Condition
+
+Two developers simultaneously modify separate components in a shared Dev environment. Developer A exports immediately after finishing. Developer B exports ten minutes later. Developer B's export captures **both** their changes and Developer A's changes. When Developer B commits, Developer A's work enters source control attributed to Developer B's commit — without review, without a PR, without a diff that makes sense.
+
+The reverse is equally problematic: Developer B exports before Developer A commits, but after Developer A made changes in the environment. Developer B's commit contains Developer A's in-progress, unreviewed work.
+
+**The shared Dev model works for teams of two or three with discipline. It does not scale.**
+
+### 5.6.2 Team-Size Decision Matrix
+
+| Team Size | Recommended Model | Dev Environments |
+|---|---|---|
+| 1–2 developers | Shared Dev with export protocol | 1 shared Dev |
+| 3–5 developers | Shared Dev with layer ownership assignments | 1 shared Dev, strict export serialization |
+| 5+ developers | Individual Dev + Integration Dev | 1 per developer + 1 shared Integration Dev |
+| Cross-functional teams (Security, Core, UI owned by different people) | Individual Dev + Integration Dev | 1 per developer + 1 shared Integration Dev |
+
+### 5.6.3 Export Serialization Protocol (Shared Dev)
+
+When a single Dev environment is shared, the team must adopt an explicit export protocol to prevent overlapping exports:
+
+1. **Announce before exporting:** Before running `pac solution export`, post a message in the team's coordination channel: `"Exporting _Core — please do not make changes until I commit."`
+2. **Export immediately after work is complete.** Do not leave uncommitted changes sitting in Dev while others work around them.
+3. **Commit before starting something new.** A developer's changes are not "safe" until they are in source control. Uncommitted state in Dev is invisible to teammates and will be overwritten on the next export.
+4. **One layer per export slot.** If you changed both `_Core` and `_Automation`, export and commit `_Core` before starting the `_Automation` export. Mixed-layer exports in the same commit obscure what changed in each layer.
+
+**The coordination overhead of this protocol is a signal.** If the team is spending significant time on export coordination, the shared Dev model has been outgrown. Move to Individual Dev + Integration Dev.
+
+### 5.6.4 Individual Dev + Integration Dev Model
+
+For teams of five or more, or for cross-functional teams where different people own different layers, the correct topology is:
+
+```
+Developer A's Individual Dev ──┐
+Developer B's Individual Dev ──┼──→ Integration Dev ──→ Test ──→ Prod
+Developer C's Individual Dev ──┘
+```
+
+**Individual Dev environments:**
+- One per developer
+- Used as personal scratch environments — the developer owns it completely
+- Changes are built here before being formally promoted
+- No export to source control happens from individual dev environments
+- Individual dev environments do not need to be at full LP-ALM parity at all times
+
+**Integration Dev environment:**
+- One shared environment that represents the "current agreed state" of the project
+- All five LP-ALM layer solutions are deployed here as unmanaged solutions
+- This is the **only** environment from which `pac solution export` is run for source control commits
+- Exports from Integration Dev are authoritative
+- Maps to the `test` branch (or a dedicated `integration` branch if used)
+
+**Developer workflow:**
+```
+1. Developer works in their individual environment
+2. When feature is complete, developer imports their changed layer solution
+   (unmanaged, force-overwrite) into Integration Dev
+3. Smoke-test in Integration Dev
+4. Export affected layers from Integration Dev
+5. Unpack, review diff, commit to feature branch
+6. PR to test branch triggers validation pipeline
+```
+
+### 5.6.5 Bringing an Individual Dev Environment Up to Date
+
+When starting a new feature, or after a significant period of time, an individual dev environment must be synchronized with the current `main` state. Without this, the developer builds against stale schema and their exports will overwrite newer changes.
+
+**Sync workflow** (also available as `scripts/sync-dev-environment.ps1`):
+
+```powershell
+# 1. Authenticate to your individual dev environment
+pac auth create `
+  --name "MyDev" `
+  --kind ServicePrincipal `
+  --applicationId <app-id> `
+  --clientSecret <secret> `
+  --tenant <tenant-id> `
+  --cloud UsGovHigh `
+  --environment https://yourorg-mydev.crm.microsoftdynamics.us
+
+# 2. Pack each layer from current main (unmanaged)
+pac solution pack --zipfile "./sync/SYSTRK_Security.zip" --folder "./solutions/SYSTRK_Security/src" --packagetype Unmanaged
+pac solution pack --zipfile "./sync/SYSTRK_Core.zip"     --folder "./solutions/SYSTRK_Core/src"     --packagetype Unmanaged
+pac solution pack --zipfile "./sync/SYSTRK_Automation.zip" --folder "./solutions/SYSTRK_Automation/src" --packagetype Unmanaged
+pac solution pack --zipfile "./sync/SYSTRK_UI.zip"       --folder "./solutions/SYSTRK_UI/src"       --packagetype Unmanaged
+
+# 3. Import in layer order
+pac solution import --path "./sync/SYSTRK_Security.zip"   --force-overwrite true --publish-changes false
+pac solution import --path "./sync/SYSTRK_Core.zip"       --force-overwrite true --publish-changes false
+# Apply _Config manually for your dev environment here (see Section 6.3)
+pac solution import --path "./sync/SYSTRK_Automation.zip" --force-overwrite true --publish-changes false
+pac solution import --path "./sync/SYSTRK_UI.zip"         --force-overwrite true --publish-changes true
+```
+
+Run this sync at the start of each sprint, after any significant merge to `main`, or any time your individual dev has not been updated in more than a week.
+
+### 5.6.6 Cross-Developer Feature Dependencies
+
+A common scenario: Developer A is building a flow (`_Automation`) that depends on a new column Developer B is adding (`_Core`). Their work is in separate feature branches and separate environments. Developer A cannot build or test their flow until Developer B's column exists.
+
+**Protocol for cross-layer dependencies:**
+
+1. **Schema-first rule.** `_Core` changes must be merged to `test` (or at minimum committed to a feature branch and imported into Integration Dev) before dependent `_Automation` or `_UI` work begins in any environment.
+
+2. **Branch the dependency explicitly.** If Developer B's `feature/new-column` branch contains the needed schema, Developer A can branch from it:
+   ```bash
+   git checkout feature/new-column
+   git checkout -b feature/new-flow
+   ```
+   Developer A's PR targets `feature/new-column`, not `test`. When `feature/new-column` merges, Developer A rebases and retargets their PR to `test`.
+
+3. **Import the dependency manually.** Developer A imports Developer B's in-progress `_Core` layer solution (from Developer B's individual dev) into their own individual dev. This is a one-way import for local testing — it does not affect source control.
+
+4. **Do not ship them in the same PR.** A PR that contains both `_Core` and `_Automation` changes is harder to review and harder to roll back. If the `_Core` change is independently deployable, merge it first. The `_Automation` PR follows.
+
+### 5.6.7 XML Merge Conflicts in Solution Files
+
+PAC CLI unpacked solutions produce XML files. Git merge conflicts in solution XML are not human-readable and are difficult to resolve manually. The strategies below reduce the frequency and severity of conflicts.
+
+**Prevention:**
+- Assign layer ownership where possible. If one developer owns `_Core` for a sprint, only they commit to `solutions/{ProjectCode}_Core/`. This eliminates merge conflicts in that layer entirely for that sprint.
+- Keep feature branches short-lived. Long-running feature branches accumulate divergence.
+- Export and commit frequently — small diffs are safer than large accumulated diffs.
+
+**When a conflict does occur:**
+1. Do not attempt to manually merge conflicting entity XML. The result is unpredictable.
+2. Determine which version of the file is correct — this is usually "the one with both changes" but requires understanding what each developer changed.
+3. Rebuild the correct state in the environment (typically Integration Dev), then re-export and re-unpack. Let the environment be the merge tool, not git.
+4. Accept the re-export output as the resolution. Commit it.
+
+**Canvas apps are the hardest case.** Canvas app source files (produced by `pac canvas unpack`) are complex JSON that does not merge cleanly. For canvas apps specifically, assign a single owner for each app. If two developers must both work on the same canvas app, they should do so serially, not in parallel.
+
+### 5.6.8 `_Config` in Developer Environments
+
+Each individual dev environment needs `_Config` applied once — either on initial setup or when environment variable definitions change. For teams with many individual dev environments, the manual `_Config` protocol (Section 6.3) can become burdensome.
+
+**Lightweight protocol for individual dev environments:**
+
+- Document the set of environment variable values needed for a functional individual dev environment in a **Config Reference Sheet** stored outside source control (shared encrypted document, team wiki, or Azure Key Vault reference). This is not the `_Config` solution file — it is the human-readable values list that a developer uses to configure their environment manually.
+- When a developer sets up a new individual dev environment, they apply `_Config` once using the Config Reference Sheet.
+- When environment variable definitions change (`_Core` change), the Config Reference Sheet is updated and developers re-apply their `_Config` on next sync.
+- **Individual dev `_Config` values may differ from Test/Prod.** This is expected — individual dev environments often point to development-tier external systems, not production systems. The Config Reference Sheet should document which values are environment-tier-specific and what the dev-tier values are.
+
+### 5.6.9 Connection Reference Binding in Developer Environments
+
+Connection references in developer environments present a specific challenge in agencies and programs where service accounts are not available or not permitted.
+
+#### Service Accounts — Best Practice
+
+The best practice for all environments, including individual dev, is to use a **non-interactive service account** bound to connection references:
+
+- A licensed M365/Power Platform service account (a user account, not a service principal) with a non-expiring password or managed credential
+- The account is assigned the `{ProjectCode} - Automation Service` security role
+- The connection reference in the environment is bound to a connection created under this service account
+- No developer's personal credentials appear in any connection
+
+This approach ensures flows work even when individual team members leave or rotate credentials, and satisfies audit requirements that connections are not personally attributable.
+
+#### When Service Accounts Are Not Available
+
+In many DoD agencies and classified programs, provisioning a service account for development purposes is restricted or prohibited by policy. Common constraints include:
+
+- No shared credentials permitted — every account must be attributed to an individual
+- CAC/PIV-only authentication — service accounts without hardware tokens cannot be provisioned
+- Zero standing access policies — no persistent service accounts; all access is just-in-time
+- Account lifecycle policies that treat shared accounts as a compliance violation
+
+When service accounts are not available, the following approach applies:
+
+**Individual dev and Integration Dev environments:**
+- Developers bind connection references to their own personal credentials in dev environments
+- This is acceptable for development environments — it is **not** acceptable in Test, UAT, or Prod
+- Document explicitly in the environment register which connections are personally bound
+- Flows may break when that developer rotates credentials or departs — this is a known limitation of personal bindings and is acceptable risk in a dev-only environment
+- When the developer leaves the project, their personal connections must be re-bound by another team member before the next Integration Dev export
+
+**Test and above:**
+- In environments where service accounts are prohibited but functional connections are required, the team must escalate to the agency's Identity and Access Management (IAM) team and document the following:
+  - A formal request for a non-interactive service account (or equivalent managed identity) for the specific purpose of Power Platform connection references
+  - The security controls applied to that account (MFA, conditional access, role-limited to the `{ProjectCode} - Automation Service` role)
+  - The approval authority granting exception or standard provisioning
+- This is not an LP-ALM limitation — it is an agency IAM policy question. LP-ALM documents the technical requirement; the project team resolves it through the agency's standard account provisioning process.
+
+**Pipeline service principals:**
+- The `prvWriteRole` requirement (System Administrator for the `_Security` pipeline job) is separate from connection references
+- Pipeline service principals authenticate via client secret or certificate — this is typically less restricted than shared user accounts because the credential is managed in Azure Key Vault, not by a human
+- If even service principals are restricted (rare but possible in some classified programs), the pipeline must be redesigned to use interactive authentication with just-in-time approval — consult the agency's DevSecOps team for approved alternatives
+
+**Summary by environment tier:**
+
+| Tier | Service Account Available | Service Account Prohibited |
+|---|---|---|
+| Individual Dev | Use service account (best practice) | Personal credentials acceptable — documented limitation |
+| Integration Dev | Use service account | Personal credentials acceptable with documented owner |
+| Test / SIT | Use service account — required | Escalate to IAM; do not use personal credentials |
+| UAT | Use service account — required | Escalate to IAM; do not use personal credentials |
+| Prod | Use service account — required | Cannot proceed without IAM-approved non-personal credential |
+
+---
 
 ### 6.1 Export → Unpack → Commit Cycle
 
@@ -1250,12 +1458,29 @@ Dev → Test → Prod
 Dev → SIT → UAT → Prod
 ```
 
-**Enterprise topology (five or more environments):**
+**Multi-developer topology (recommended for teams of 5+):**
 ```
-Dev (individual) → Integration Dev → SIT → UAT → Prod
+Individual Dev (per developer) → Integration Dev → Test → Prod
 ```
 
-For GCC High deployments, a commercial sandbox environment is often maintained for development tooling access (e.g., Copilot Studio preview features), with a separate GCC High development environment for actual solution development.
+**Enterprise topology:**
+```
+Individual Dev (per developer) → Integration Dev → SIT → UAT → Prod
+```
+
+For GCC High deployments, a commercial sandbox environment is often maintained alongside the GCC High topology for development tooling access (e.g., Copilot Studio features not yet available in GCC High), with the GCC High Integration Dev as the canonical source for exports.
+
+**Choosing a topology:**
+
+| Condition | Recommended Topology |
+|---|---|
+| Solo developer or 2-person team | Shared Dev → Test → Prod |
+| 3–5 developers, same functional area | Shared Dev → Test → Prod with export protocol |
+| 5+ developers | Individual Dev + Integration Dev → Test → Prod |
+| Cross-functional team (Security, Core, UI owned separately) | Individual Dev + Integration Dev → Test → Prod |
+| Regulated/GCC High, any team size | Individual Dev + Integration Dev → SIT → UAT → Prod |
+
+See Section 5.6 for the full multi-developer workflow, export serialization protocol, and Integration Dev operating procedures.
 
 ### 9.2 What Is Deployed to Each Environment
 
