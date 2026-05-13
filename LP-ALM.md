@@ -31,6 +31,9 @@ render_with_liquid: false
 11. [Methodology Positioning](#11-methodology-positioning)
 12. [Platform Prerequisites & Complementary Guidance](#12-platform-prerequisites--complementary-guidance)
 
+**Appendices**
+- [Appendix A: Azure Integration Layer Guidance](#appendix-a-azure-integration-layer-guidance)
+
 ---
 
 ## 1. Executive Summary
@@ -1845,3 +1848,133 @@ LP-ALM assumes Landing Zones prerequisites are met. Well-Architected provides th
 *Document Version: 1.0 | May 2026 | LP-ALM Methodology*
 
 *This document is the authoritative reference for the Layered Power Platform ALM methodology. Updates are tracked in source control alongside the solution source they govern. The methodology version aligns with the solution major version.*
+
+---
+
+## Appendix A: Azure Integration Layer Guidance
+
+LP-ALM's five layers govern Power Platform solution decomposition. When a workload connects to Azure services — Azure Functions, Logic Apps, Service Bus, API Management, Event Grid, or others — the resources span two platforms with different lifecycle models. This appendix defines where each piece belongs and when to introduce an optional `_Integration` layer.
+
+---
+
+### A.1 The Fundamental Split
+
+Not everything in an Azure-connected workload belongs inside a Power Platform solution.
+
+| Artifact | Where It Lives | How It Deploys |
+|---|---|---|
+| Azure Function / Logic App / Service Bus | Azure — Bicep, ARM, or Azure CLI | Separate ADO pipeline; no Power Platform solution |
+| Custom connector definition | `_Automation` (or `_Integration` — see A.3) | PAC CLI, same as other solution artifacts |
+| Connection reference pointing to the custom connector | `_Automation` (or `_Integration`) | PAC CLI |
+| Power Automate flow that calls the Azure API | `_Automation` | PAC CLI |
+| Endpoint URL, function key, API key | `_Config` as an environment variable | Manual — never committed, never in a pipeline |
+| Managed Identity binding | Azure portal / Bicep | Azure-side; no solution artifact |
+
+The Power Platform side of the integration (connector, connection reference, flows) follows the same layer rules as any other component. The Azure side is infrastructure managed independently.
+
+---
+
+### A.2 Credentials and Endpoint Configuration
+
+The connection between Power Platform and Azure surfaces in `_Config` — not in any committed layer.
+
+- **Endpoint URL** (e.g., `https://{functionapp}.azurewebsites.net/api/{function}`) → environment variable in `_Config`
+- **Function key or API key** → environment variable in `_Config`; value set manually per environment; never stored in source control
+- **Managed Identity** → preferred over keys; no credential stored anywhere; requires the Power Platform environment's system-assigned identity to be granted a role on the Azure resource
+
+When a flow or connector reads the endpoint from an environment variable, only the variable *name* is committed to source. The value is applied as part of the `_Config` manual step in each environment.
+
+---
+
+### A.3 When to Add a `_Integration` Layer
+
+For simple integrations — a single custom connector and a handful of flows — `_Automation` is sufficient. Introduce a dedicated `_Integration` layer when any of the following conditions apply:
+
+| Condition | Reason to Separate |
+|---|---|
+| Custom connectors are shared by multiple downstream solutions | Connector becomes a versioned dependency; it needs its own release cadence |
+| The Azure-facing components are owned by a different team | Team boundaries should align with solution boundaries |
+| Azure infrastructure and Power Platform automation have different deployment gates | Splitting layers allows independent promotion through environments |
+| The connector or bridge is reused across more than one project | A shared artifact should not be bundled inside a project-specific `_Automation` |
+
+When `_Integration` is added, the full layer order becomes:
+
+```
+_Security → _Core → _Config → _Integration → _Automation → _UI
+```
+
+`_Integration` must be fully deployed before `_Automation` because flows in `_Automation` may depend on connection references defined in `_Integration`. The deployment order rule — each layer deploys after its dependencies — still applies.
+
+---
+
+### A.4 Repository and Pipeline Structure
+
+**Repository layout with Azure resources:**
+
+```
+repo-root/
+  solutions/
+    {prefix}_Security/
+    {prefix}_Core/
+    {prefix}_Integration/       # optional — only if A.3 conditions are met
+    {prefix}_Automation/
+    {prefix}_UI/
+  azure/                         # Azure-side infrastructure
+    functions/
+    bicep/
+    pipelines/
+      deploy-azure-infra.yml
+  pipelines/
+    deploy-security.yml
+    deploy-core.yml
+    deploy-integration.yml       # optional
+    deploy-automation.yml
+    deploy-ui.yml
+    deploy-all.yml
+```
+
+**Pipeline dependency chain with `_Integration`:**
+
+```yaml
+# deploy-all.yml — updated dependsOn chain
+jobs:
+  - job: DeploySecurity
+  - job: DeployCore
+    dependsOn: DeploySecurity
+  - job: ConfigGate          # ManualValidation — apply _Config before proceeding
+    dependsOn: DeployCore
+  - job: DeployIntegration
+    dependsOn: ConfigGate
+  - job: DeployAutomation
+    dependsOn: DeployIntegration
+  - job: DeployUI
+    dependsOn: DeployAutomation
+```
+
+The Azure infrastructure pipeline (`deploy-azure-infra.yml`) runs independently on its own trigger. It is not chained into the Power Platform deploy-all orchestration — Azure infrastructure and Power Platform solution deployments have different owners and approval gates.
+
+---
+
+### A.5 Security Considerations
+
+| Concern | Recommendation |
+|---|---|
+| Auth between Power Platform and Azure | Managed Identity preferred; avoids any stored credential |
+| Azure Function keys / API keys | `_Config` environment variable only; rotate per environment; never in source control |
+| Custom connector API definition | May include base URL — use an environment variable reference; do not hard-code per-environment URLs in the connector definition |
+| Pipeline service principal access to Azure | Separate Azure SP with least-privilege role on the specific Azure resource; do not reuse the Power Platform pipeline SP |
+| GCC High to Azure Government | Ensure Azure resources are deployed to Azure Government (`*.usgovcloudapi.net`) to match the data boundary; commercial Azure endpoints are not authorized for GCC High workloads |
+
+---
+
+### A.6 The Framework Extension Principle
+
+LP-ALM is intentionally extensible. When a workload grows beyond the five standard layers, the framework's answer is: **add a layer, keep the rules**. The same constraints apply to any new layer:
+
+- It has a single responsibility — one layer, one concern
+- It deploys after its dependencies and before its consumers
+- It is never merged with `_Config`
+- Its deployment is automated; only `_Config` values remain manual
+- Schema (tables, columns, relationships) belongs in `_Core`, not in any integration or automation layer
+
+The `_Integration` layer is the most common extension point. Other extension points that teams have used include `_Reporting` (for Power BI dataset bindings and paginated report definitions) and `_Portal` (for Power Pages site components when the portal release cadence diverges from `_UI`). Apply the same design test to any proposed new layer: does it have a distinct deployment dependency, a distinct ownership boundary, or a distinct release cadence? If yes, it earns its own layer.
