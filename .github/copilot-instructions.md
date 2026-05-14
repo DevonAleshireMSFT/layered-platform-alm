@@ -66,6 +66,7 @@ corresponding file before generating a response:
 | Where does component X go? | `docs/component-placement-decision-tree.md` |
 | Environment URLs, service principals, teams | `docs/environment-register-template.md` |
 | New project or developer onboarding | `docs/onboarding-checklist.md` |
+| Enterprise strategy — GCC High / DoD scale | `docs/enterprise-strategy-gcc-high.md` |
 
 ## What You Must Never Do
 

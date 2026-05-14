@@ -53,7 +53,7 @@ LP-ALM is designed for:
 - **Platform architects** building repeatable, auditable delivery pipelines using Azure DevOps and PAC CLI
 - **Consulting teams** delivering Power Platform solutions to clients who require documentation of security controls, change management processes, and pipeline architecture
 
-LP-ALM is not appropriate for single-environment prototypes, low-code citizen developer projects without a dedicated ALM team, or solutions that will never leave a development environment.
+LP-ALM is not appropriate for single-environment prototypes, maker / low-code projects without a dedicated ALM team, or solutions that will never leave a development environment.
 
 ### 1.3 Core Value Proposition vs. Monolithic Development
 
@@ -1767,7 +1767,7 @@ LP-ALM is compatible with Microsoft's Power Platform CoE Starter Kit and does no
 LP-ALM is not appropriate for:
 - **Single-environment solutions** — no deployment pipeline means the layer architecture provides no deployment benefit
 - **Prototype and proof-of-concept work** — five solutions, pipelines, and service principals is excessive for short-lived work
-- **Citizen developer projects** — low-code makers without ALM tooling should use the simplest solution structure that works
+- **Maker projects** — low-code makers without ALM tooling should use the simplest solution structure that works
 - **Single-person projects without change control requirements** — per-layer pipeline overhead is unnecessary
 - **Solutions that will never go to a regulated environment** — compliance posture features add complexity with no return
 

@@ -2,10 +2,13 @@
 
 [![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=github)](https://DevonAleshireMSFT.github.io/layered-platform-alm)
 [![AI Context Framework](https://img.shields.io/badge/AI%20Context-Framework-blueviolet)](https://devonaleshiremsft.github.io/ai-context-framework/)
+[![GovFLOW](https://img.shields.io/badge/GovFLOW-Framework-darkgreen)](https://devonaleshiremsft.github.io/gov-flow/)
 
 **[LP-ALM Methodology Site](https://DevonAleshireMSFT.github.io/layered-platform-alm)**
 
 A security-first decomposition framework for Microsoft Power Platform solutions in enterprise and government (GCC High / FedRAMP) environments.
+
+> LP-ALM is part of the **[GovFLOW](https://devonaleshiremsft.github.io/gov-flow/)** ecosystem — the Government Federated Low-Code Operations Framework. GovFLOW provides the broader enterprise governance model within which LP-ALM operates as the ALM methodology layer.
 
 ---
 
@@ -123,6 +126,8 @@ The complete LP-ALM methodology is in [LP-ALM.md](LP-ALM.md). It covers:
 10. Onboarding Guide for New Teams
 11. Methodology Positioning (how to present LP-ALM to executives, technical teams, and security officers)
 12. Platform Prerequisites & Complementary Guidance (framework alignment, platform admin dependencies)
+
+For large-scale DoD/GCC High deployments, see [docs/enterprise-strategy-gcc-high.md](docs/enterprise-strategy-gcc-high.md) — a full environment strategy, governance model, and DevSecOps recommendation for Army/Navy/USMC-scale tenants.
 
 ---
 
