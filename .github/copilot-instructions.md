@@ -1,9 +1,9 @@
-# GitHub Copilot Instructions — Layered Power Platform ALM (LP-ALM)
+# GitHub Copilot Instructions — Layered Platform ALM (LP-ALM)
 #
 # This file is automatically read by GitHub Copilot in every chat session
 # in this repository.
 #
-# PROJECT: LP-ALM — Layered Power Platform ALM Methodology
+# PROJECT: LP-ALM — Layered Platform ALM Methodology
 # PLATFORM: Microsoft Power Platform / Dataverse
 # TARGET: Enterprise and Government (GCC High / FedRAMP) deployments
 # -----------------------------------------------------------------------

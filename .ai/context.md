@@ -14,7 +14,7 @@
 | **Publisher Display Name** | `{Project Name} Platform` |
 | **Publisher Unique Name** | `{projectname}platform` |
 | **Publisher Prefix** | `{prefix}` — 2–5 char lowercase (e.g., `sys`) |
-| **Methodology** | Layered Power Platform ALM (LP-ALM) v1.0 |
+| **Methodology** | Layered Platform ALM (LP-ALM) v1.0 |
 
 ---
 
