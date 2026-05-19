@@ -7,7 +7,7 @@ permalink: /methodology/
 render_with_liquid: false
 ---
 
-# Layered Power Platform ALM (LP-ALM)
+# Layered Platform ALM (LP-ALM)
 ## A Security-First Decomposition Methodology for Enterprise Power Platform Deployments
 
 **Version:** 1.0  
@@ -40,7 +40,7 @@ render_with_liquid: false
 
 ### 1.1 What LP-ALM Is
 
-Layered Power Platform ALM (LP-ALM) is a structured application lifecycle management framework for Microsoft Power Platform that decomposes solutions into five discrete, ordered deployment layers: Security, Core, Config, Automation, and UI. Each layer has a defined scope, deployment method, source control treatment, and dependency contract with adjacent layers.
+Layered Platform ALM (LP-ALM) is a structured application lifecycle management framework for Microsoft Power Platform that decomposes solutions into five discrete, ordered deployment layers: Security, Core, Config, Automation, and UI. Each layer has a defined scope, deployment method, source control treatment, and dependency contract with adjacent layers.
 
 LP-ALM exists because monolithic Power Platform solutions — a single solution containing security roles, data schema, flows, environment variables, connection references, and app components — create a class of problems that compound over time: coupled deployments where a UI change requires a full schema re-import, pipeline secrets exposure from environment-specific values committed to source control, security role gaps when tables are created before access controls exist, and merge conflicts across teams when all components share a single solution artifact.
 
@@ -70,7 +70,7 @@ LP-ALM is not appropriate for single-environment prototypes, maker / low-code pr
 
 ### 1.4 Security Architecture Statement (ATO/Security Plan Language)
 
-> The Layered Power Platform ALM methodology implements a defense-in-depth deployment architecture for Microsoft Power Platform. Security roles and field security profiles are established as the first deployment action in every environment, ensuring that access control structures precede the creation of any data schema, application logic, or user interface. Environment-specific configuration values, including connection strings, shared secret references, and tenant-specific identifiers, are classified as configuration data and are explicitly excluded from source control and automated pipelines. All upper-environment deployments use managed solutions, preventing ad-hoc customization and enforcing change control through the pipeline. Pipeline execution uses service principal application users with the minimum required privileges for each layer. This architecture directly implements NIST SP 800-53 controls AC-2, AC-3, CM-2, CM-3, and SA-3, and is designed to support FedRAMP Moderate and High authorization requirements in Microsoft Azure Government (GCC High) environments.
+> The Layered Platform ALM methodology implements a defense-in-depth deployment architecture for Microsoft Power Platform. Security roles and field security profiles are established as the first deployment action in every environment, ensuring that access control structures precede the creation of any data schema, application logic, or user interface. Environment-specific configuration values, including connection strings, shared secret references, and tenant-specific identifiers, are classified as configuration data and are explicitly excluded from source control and automated pipelines. All upper-environment deployments use managed solutions, preventing ad-hoc customization and enforcing change control through the pipeline. Pipeline execution uses service principal application users with the minimum required privileges for each layer. This architecture directly implements NIST SP 800-53 controls AC-2, AC-3, CM-2, CM-3, and SA-3, and is designed to support FedRAMP Moderate and High authorization requirements in Microsoft Azure Government (GCC High) environments.
 
 ---
 
@@ -1868,7 +1868,7 @@ LP-ALM assumes Landing Zones prerequisites are met. Well-Architected provides th
 
 *Document Version: 1.0 | May 2026 | LP-ALM Methodology*
 
-*This document is the authoritative reference for the Layered Power Platform ALM methodology. Updates are tracked in source control alongside the solution source they govern. The methodology version aligns with the solution major version.*
+*This document is the authoritative reference for the Layered Platform ALM methodology. Updates are tracked in source control alongside the solution source they govern. The methodology version aligns with the solution major version.*
 
 ---
 

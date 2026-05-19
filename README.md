@@ -1,7 +1,6 @@
-# Layered Power Platform ALM (LP-ALM)
+# Layered Platform ALM (LP-ALM)
 
 [![GitHub Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue?logo=github)](https://DevonAleshireMSFT.github.io/layered-platform-alm)
-[![AI Context Framework](https://img.shields.io/badge/AI%20Context-Framework-blueviolet)](https://devonaleshiremsft.github.io/ai-context-framework/)
 [![GovFLOW](https://img.shields.io/badge/GovFLOW-Framework-darkgreen)](https://devonaleshiremsft.github.io/gov-flow/)
 
 **[LP-ALM Methodology Site](https://DevonAleshireMSFT.github.io/layered-platform-alm)**
@@ -41,8 +40,7 @@ This repository contains the complete **LP-ALM methodology** — a structured ap
 ## Repository Structure
 
 ```
-.ai/                        ← AI context directory — implements AI Context Framework
-                               See: https://devonaleshiremsft.github.io/ai-context-framework/
+.ai/                        ← AI context directory — project identity, layer rules, schema, naming conventions
 .gitignore                  ← Power Platform exclusions (includes _Config)
 LP-ALM.md                   ← Full methodology document (all 11 sections)
 README.md                   ← This file
@@ -71,24 +69,16 @@ solutions/
 ## Getting Started
 
 **New to this project?** Start here:
-1. Read the `.ai/` directory — project identity, layer rules, schema, and naming conventions (see [AI Context Framework](https://devonaleshiremsft.github.io/ai-context-framework/) for the structure)
+1. Read the `.ai/` directory — project identity, layer rules, schema, and naming conventions
 2. Follow [docs/onboarding-checklist.md](docs/onboarding-checklist.md) — tools, access, first PR
 
 **Setting up a new project using LP-ALM?**
 1. Read [LP-ALM.md](LP-ALM.md) — the full methodology (especially Sections 2, 4, 6, 7, 10)
 2. Follow the onboarding checklist Part 2 (new project setup)
-3. Implement the [AI Context Framework](https://devonaleshiremsft.github.io/ai-context-framework/) in your repo and populate `.ai/context.md` with your project code, prefix, and environment details
+3. Populate `.ai/context.md` with your project code, prefix, and environment details
 4. Update all pipeline YAML files with your project code and variable group names
 
 **Not sure where a component goes?** See [docs/component-placement-decision-tree.md](docs/component-placement-decision-tree.md).
-
-## AI Context Framework
-
-The `.ai/` directory in this repository is an implementation of the [AI Context Framework](https://devonaleshiremsft.github.io/ai-context-framework/) — a structured approach to making AI assistants project-aware from the first session.
-
-When you adopt LP-ALM for your own project, implement the AI Context Framework in your repo to give GitHub Copilot and other AI tools the context they need: naming conventions, schema, security constraints, and architecture decisions — committed alongside the code that depends on them.
-
-> Every project that adopts LP-ALM should also implement the AI Context Framework. The `.ai/` structure is already included in this template. Populate it with your project specifics.
 
 ---
 
