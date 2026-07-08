@@ -43,8 +43,8 @@ Use GovFLOW to design and govern the platform. Use LP-ALM to build and deploy wi
 If you are adopting LP-ALM as part of a government Power Platform program:
 
 1. **Read [GovFLOW](https://devonaleshiremsft.github.io/gov-flow/)** — understand the environment strategy, governance model, and security architecture your program will operate within
-2. **Read [LP-ALM Methodology](/methodology/)** — understand how your solutions will be structured, deployed, and maintained
-3. **Follow the [Onboarding Checklist](/onboarding/)** — environment setup, pipeline configuration, and first deployment
+2. **Read [LP-ALM Methodology]({{ site.baseurl }}/methodology/)** — understand how your solutions will be structured, deployed, and maintained
+3. **Follow the [Onboarding Checklist]({{ site.baseurl }}/onboarding/)** — environment setup, pipeline configuration, and first deployment
 
 ---
 
