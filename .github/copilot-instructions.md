@@ -50,6 +50,10 @@ replaced with real values. The `.ai/` files are the first place to update.
   Team privileges"** — not Business Unit level.
 - **Never generate, suggest, or output credentials, secrets, API keys,
   or connection strings in any form.**
+- **"Pipeline" always means Azure DevOps (ADO) YAML pipeline.** LP-ALM
+  does not use Power Platform Pipelines (the in-product admin center
+  feature). Never suggest Power Platform Pipelines as an alternative to
+  or replacement for the ADO pipeline architecture defined here.
 
 ## Where to Find More Context
 
@@ -78,6 +82,8 @@ corresponding file before generating a response:
 - Suggest adding schema (tables, columns) to the `_UI` solution.
 - Suggest using personal credentials in a connection reference.
 - Suggest deploying a managed solution to the Dev environment.
+- Suggest using Power Platform Pipelines (the admin center feature) in
+  place of the ADO YAML pipelines that LP-ALM requires.
 - Treat `.ai/` documents as the authoritative source of truth — they are
   working context documents maintained alongside the methodology.
 

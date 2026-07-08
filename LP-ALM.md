@@ -405,6 +405,26 @@ _Security → _Core → _Config → _Automation → _UI
 
 Both UI solutions share the same `_Core` schema, `_Automation` flows, and `_Config` environment variables. Access control between the two apps is enforced in `_Security` — the admin role grants write access to privileged tables; the standard role does not. Both deploy in the UI phase of the pipeline. This is the appropriate pattern when the admin and user experiences are distinct enough to warrant separate canvas apps or model-driven app configurations but are not separate enough to justify independent `_Core` schemas.
 
+**When to split `_UI` into multiple solutions:**
+
+| Consideration | One `_UI` solution | Separate `_UI` solutions |
+|---|---|---|
+| Release cadence | Both apps always deploy together | Apps have independent release schedules |
+| Team ownership | Same team maintains both apps | Different teams own each app |
+| Deployment targets | Always deployed to same environments | One app may not deploy to all environments |
+| Blast radius tolerance | Acceptable to touch both per release | Need to patch one without touching the other |
+
+The default is **one `_UI` solution**. Split only when one or more of the above "Separate" conditions is true — not as a matter of preference or logical organization.
+
+**Naming pattern for split UI solutions:**
+
+```
+{ProjectCode}_UI          → primary / user-facing application
+{ProjectCode}_UI_Admin    → admin or elevated-access application
+```
+
+Both solutions deploy as sequential imports in the UI phase. The `deploy-ui.yml` pipeline accepts a `uiSolutionSuffix` parameter (`_Admin`, `_User`, or empty) so the same pipeline template drives all UI deployments without duplication.
+
 **Azure integration** — When flows call Azure services, the Power Platform-side artifacts (custom connectors, connection references, flows) stay in `_Automation`. If the integration is large, shared across solutions, or has its own release cadence, a `_Integration` layer can be inserted between `_Config` and `_Automation`. See [Appendix A](#appendix-a-azure-integration-layer-guidance).
 
 **Multiple applications sharing a data model** — When two or more applications in the same environment share tables, the schema is centralized in a shared `_Core` owned by a platform team. Each application then provides its own `_Automation` and `_UI` layers that declare a solution dependency on the shared `_Core`. Per-application `_Config` values remain independent.
@@ -1171,6 +1191,8 @@ Write-Host "All layers exported and unpacked. _Config was intentionally skipped.
 
 ## 7. Azure DevOps Pipeline Architecture
 
+> **Terminology note:** Throughout this section, "pipeline" refers exclusively to **Azure DevOps (ADO) YAML pipelines**. This is distinct from **Power Platform Pipelines**, which is a separate in-product ALM feature available in the Power Platform admin center. LP-ALM does not use Power Platform Pipelines. All pipeline architecture, YAML examples, and variable group references in this section are Azure DevOps constructs.
+
 ### 7.1 Pipeline Architecture Decision: Per-Layer vs. Single Pipeline
 
 **Recommendation: Per-layer pipelines with a single orchestration pipeline.**
@@ -1346,6 +1368,69 @@ steps:
   # Note: _Config is never validated in pipeline
 ```
 
+### 7.7 ADO Pipeline as the Release Mechanism
+
+A question that arises when adopting LP-ALM from other ALM approaches is whether a **Dataverse release solution** is needed — a thin solution with no components of its own whose only purpose is to declare dependencies on all other solutions and provide a single versioned, importable artifact.
+
+**LP-ALM does not use a Dataverse release solution. The ADO pipeline is the release mechanism.**
+
+Three structural reasons explain why a Dataverse release solution conflicts with LP-ALM:
+
+| Reason | Explanation |
+|---|---|
+| `_Config` can never be a solution artifact | A release solution cannot include `_Config`. Any bundle of the other layers gives the false impression of a complete, self-contained release. |
+| Ordering is enforced by the pipeline, not by Dataverse | A release solution imported as a single artifact cannot guarantee `_Security` deploys before schema. The pipeline `dependsOn` chain is the only reliable enforcement. |
+| Independent layer rollback is a core capability | A release solution couples all layers into one import unit. Rolling back only `_UI` requires reimporting the entire bundle. Per-layer pipelines support `_UI`-only rollback in under a minute. |
+
+The versioned release artifact in LP-ALM is the **pipeline run** — identified by the ADO build number, branch, and commit SHA. The per-layer managed solution ZIP files published as ADO pipeline artifacts at each run are the auditable, point-in-time artifact record.
+
+**When a Dataverse release solution is appropriate:** Only when there are no pipelines — for example, distributing a packaged product to customers who import manually without an ADO environment, or when deploying directly from the Power Apps maker portal (make.powerapps.com) as a one-time or ad-hoc action. In those scenarios, a release solution that wraps `_Security`, `_Core`, `_Automation`, and `_UI` as a single importable artifact is a reasonable substitute — the recipient imports one file and Dataverse resolves internal dependencies in order. Note that `_Config` is still excluded and must be applied manually after import regardless of whether a release solution is used. In any pipeline-driven deployment, a release solution adds coupling without benefit.
+
+### 7.8 Enterprise Multi-Application Pipeline Topology
+
+When a project grows to multiple applications sharing a common `_Core` schema, the single-project pipeline model expands into a two-tier topology: a **Platform pipeline** that owns and publishes the shared layers as versioned artifacts, and per-application **App pipelines** that consume them.
+
+**Ownership boundaries:**
+
+| Component | Owner | Pipeline |
+|---|---|---|
+| Shared `_Security` (platform roles) | Platform team | Platform pipeline |
+| Shared `_Core` (all schema) | Platform team | Platform pipeline |
+| App-specific `_Security` (app roles) | App team | App pipeline |
+| App-specific `_Automation` | App team | App pipeline |
+| App-specific `_UI` (one or more) | App team | App pipeline |
+| `_Config` (all layers) | Platform + App teams | Never in any pipeline |
+
+**Platform pipeline flow:**
+
+```
+Platform pipeline (triggers on platform team branch):
+  1. Export _Core from Platform Integration Dev
+  2. Pack as managed solution
+  3. Publish artifact: {ProjectCode}_Core_v{version}.zip → ADO Artifacts feed
+  4. Tag the run: Platform_Core_v1.3.0
+```
+
+**App pipeline flow (consuming the platform artifact):**
+
+```
+App pipeline (triggers on app team branch):
+  1. Download Platform_Core_v{pinnedVersion}.zip from ADO Artifacts
+  2. Import _Core (managed) to target environment
+  3. Deploy App _Security
+  4. (manual _Config gate)
+  5. Deploy App _Automation
+  6. Deploy App _UI  (or _UI_User then _UI_Admin if split)
+```
+
+App A can pin to `Platform_Core_v1.3.0` while App B independently adopts `Platform_Core_v1.5.0`. Neither app is blocked by the other's release cadence, and no app team can introduce breaking schema changes into the shared `_Core` — only the platform team can publish a new version of it.
+
+**Rules that carry forward unchanged:**
+- `_Config` is never part of any pipeline step — platform or application
+- `_Security` always deploys before `_Core` in both the platform pipeline and every app pipeline
+- Upper environments receive managed solutions only — the pinned platform artifact must be the managed solution ZIP
+- GCC High deployments require `--cloud UsGovHigh` in all `pac auth create` commands in both pipelines
+
 ---
 
 ## 8. Security Role Design Guidance
@@ -1491,6 +1576,16 @@ Individual Dev (per developer) → Integration Dev → Test → Prod
 ```
 Individual Dev (per developer) → Integration Dev → SIT → UAT → Prod
 ```
+
+**Multi-application enterprise topology:**
+```
+Platform Dev → Platform Integration Dev → (platform artifact published to ADO Artifacts)
+                                                    ↓
+App A Dev → App A Integration Dev → Test → Prod  (consumes pinned platform artifact)
+App B Dev → App B Integration Dev → Test → Prod  (consumes pinned platform artifact)
+```
+
+In this topology the Platform Integration Dev environment is the canonical export source for `_Core`. App teams maintain separate Integration Dev environments for their own `_Automation` and `_UI` layers. Test and Prod environments may be shared across apps or isolated per app depending on ATO boundary requirements and environment licensing constraints.
 
 For GCC High deployments, a commercial sandbox environment is often maintained alongside the GCC High topology for development tooling access (e.g., Copilot Studio features not yet available in GCC High), with the GCC High Integration Dev as the canonical source for exports.
 

@@ -28,6 +28,20 @@ parameters:
       - test
       - prod
 
+  - name: uiSolutionSuffix
+    displayName: 'UI Solution Suffix'
+    type: string
+    default: ''
+    # Controls which _UI solution is deployed. Examples:
+    #   ''        → deploys {ProjectCode}_UI          (single or primary user app)
+    #   '_Admin'  → deploys {ProjectCode}_UI_Admin    (admin / elevated-access app)
+    #   '_User'   → deploys {ProjectCode}_UI_User     (if primary was renamed with suffix)
+    #
+    # When a project has multiple UI solutions, call this pipeline once per solution:
+    #   Step 1: uiSolutionSuffix = ''       → deploys {ProjectCode}_UI
+    #   Step 2: uiSolutionSuffix = '_Admin' → deploys {ProjectCode}_UI_Admin
+    # Both steps run in the UI phase after _Automation is deployed.
+
 variables:
   - group: SYSTRK-Common
 
@@ -56,6 +70,9 @@ variables:
   - name: SolutionVersion
     value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
 
+  - name: UISolutionName
+    value: '$(ProjectCode)_UI${{ parameters.uiSolutionSuffix }}'
+
   - name: OutputPath
     value: '$(Build.ArtifactStagingDirectory)/solutions'
 
@@ -70,11 +87,11 @@ steps:
 
   - script: |
       pac solution pack ^
-        --zipfile "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
-        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src" ^
+        --zipfile "$(OutputPath)/$(UISolutionName)_managed.zip" ^
+        --folder "$(Build.SourcesDirectory)/solutions/$(UISolutionName)/src" ^
         --packagetype Managed ^
         --solutionversion "$(SolutionVersion)"
-    displayName: 'Pack $(ProjectCode)_UI (Managed)'
+    displayName: 'Pack $(UISolutionName) (Managed)'
 
   - script: |
       pac auth create ^
@@ -90,12 +107,12 @@ steps:
 
   - script: |
       pac solution import ^
-        --path "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
+        --path "$(OutputPath)/$(UISolutionName)_managed.zip" ^
         --activate-plugins true ^
         --force-overwrite true ^
         --publish-changes true ^
         --skip-dependency-check false
-    displayName: 'Import $(ProjectCode)_UI to ${{ parameters.targetEnvironment }}'
+    displayName: 'Import $(UISolutionName) to ${{ parameters.targetEnvironment }}'
 
   - publish: $(OutputPath)
     artifact: 'ui-${{ parameters.targetEnvironment }}-$(Build.BuildId)'
