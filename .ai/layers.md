@@ -129,6 +129,16 @@
 **Solution type in upper environments:** Managed  
 **Warning:** If solution checker or `git diff` shows `Entities/` content inside this folder, stop and move it to `_Core` before proceeding.
 
+**Multiple UI solutions (split pattern):**  
+When the project has two distinct front-end apps with independent release cadences or different team ownership, use separate solutions rather than one combined `_UI`:
+
+| Solution | Contents |
+|---|---|
+| `{ProjectCode}_UI` | Primary / user-facing application |
+| `{ProjectCode}_UI_Admin` | Admin or elevated-access application |
+
+Both share `_Core`, `_Automation`, and `_Config`. Both deploy in the UI phase as sequential pipeline invocations of `deploy-ui.yml` — first with no suffix, then with `_Admin`. See LP-ALM.md §2.6 for the decision framework on when to split.
+
 ---
 
 ## Quick Decision Matrix

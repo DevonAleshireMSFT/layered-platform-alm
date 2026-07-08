@@ -101,6 +101,27 @@ START: I have a Power Platform component to place in a layer.
 | Is this a web resource used for display/rendering in a form? | Yes | `_UI` |
 | Is this a web resource that defines column validation logic? | Yes | `_Core` |
 
+### Multiple Front-End Applications (UI Split Decision)
+
+When a project contains more than one application in the `_UI` layer, use this framework to determine whether they belong in one `_UI` solution or separate solutions:
+
+| Consideration | One `_UI` solution | Separate `_UI` solutions |
+|---|---|---|
+| Release cadence | Both apps always deploy together | Apps have independent release schedules |
+| Team ownership | Same team maintains both apps | Different teams own each app |
+| Deployment targets | Always deployed to same environments | One app may not deploy to all environments |
+| Blast radius tolerance | Acceptable to touch both per release | Need to patch one without touching the other |
+
+**Default:** One `_UI` solution. Split only when one or more "Separate" conditions above applies — not as a matter of logical organization.
+
+**Naming when split:**
+```
+{ProjectCode}_UI          → primary / user-facing application
+{ProjectCode}_UI_Admin    → admin or elevated-access application
+```
+
+Both solutions share the same `_Core`, `_Automation`, and `_Config`. Both deploy during the UI phase of the pipeline as sequential imports, not simultaneous. See LP-ALM.md §2.6 for the full discussion.
+
 ### Environment Variables
 
 | Question | Answer | Layer |
