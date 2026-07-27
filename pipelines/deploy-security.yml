@@ -1,18 +1,14 @@
 # ============================================================
-# LP-ALM: Deploy _Security Layer (Individual)
+# LP-ALM: Deploy Security Layer (Individual)
 # deploy-security.yml
 #
-# Deploys only the _Security layer to the target environment.
-# Use this for:
-#   - Security role hotfixes
-#   - Adding new roles without touching other layers
-#   - First-time environment setup (Security is always first)
-#
-# Requires System Administrator role on the service principal
-# (Dataverse requires prvWriteRole for security role deployment).
+# Deploys the Security layer to the target environment. Dev imports
+# unmanaged packages; Test and Prod import managed packages. Optional
+# runtime settings are generated from approved secret-backed pipeline
+# sources, passed to PAC CLI, then deleted from the workspace.
 # ============================================================
 
-trigger: none  # Manually triggered or called from deploy-all.yml
+trigger: none
 
 parameters:
   - name: targetEnvironment
@@ -20,11 +16,32 @@ parameters:
     type: string
     default: 'test'
     values:
+      - dev
       - test
       - prod
 
+  - name: settingsJson
+    displayName: 'Optional settings JSON from approved ADO variable group / Key Vault macro'
+    type: string
+    default: ''
+
 variables:
   - group: SYSTRK-Common
+
+  - ${{ if eq(parameters.targetEnvironment, 'dev') }}:
+    - group: SYSTRK-Dev
+    - name: EnvironmentUrl
+      value: $(Dev.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Dev.ApplicationId)
+    - name: TenantId
+      value: $(Dev.TenantId)
+    - name: ClientSecret
+      value: $(Dev.ClientSecret)
+    - name: SolutionPackageType
+      value: Unmanaged
+    - name: SolutionZipSuffix
+      value: unmanaged
 
   - ${{ if eq(parameters.targetEnvironment, 'test') }}:
     - group: SYSTRK-Test
@@ -36,6 +53,10 @@ variables:
       value: $(Test.TenantId)
     - name: ClientSecret
       value: $(Test.ClientSecret)
+    - name: SolutionPackageType
+      value: Managed
+    - name: SolutionZipSuffix
+      value: managed
 
   - ${{ if eq(parameters.targetEnvironment, 'prod') }}:
     - group: SYSTRK-Prod
@@ -47,12 +68,19 @@ variables:
       value: $(Prod.TenantId)
     - name: ClientSecret
       value: $(Prod.ClientSecret)
+    - name: SolutionPackageType
+      value: Managed
+    - name: SolutionZipSuffix
+      value: managed
 
   - name: SolutionVersion
     value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
 
   - name: OutputPath
-    value: '$(Build.ArtifactStagingDirectory)/solutions'
+    value: '$(Build.ArtifactStagingDirectory)\solutions'
+
+  - name: SolutionName
+    value: '$(ProjectCode)_Security'
 
 pool:
   vmImage: 'windows-latest'
@@ -65,11 +93,24 @@ steps:
 
   - script: |
       pac solution pack ^
-        --zipfile "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
-        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Security/src" ^
-        --packagetype Managed ^
+        --zipfile "$(OutputPath)\$(SolutionName)_$(SolutionZipSuffix).zip" ^
+        --folder "$(Build.SourcesDirectory)\solutions\$(SolutionName)\src" ^
+        --packagetype $(SolutionPackageType) ^
         --solutionversion "$(SolutionVersion)"
-    displayName: 'Pack $(ProjectCode)_Security (Managed)'
+    displayName: 'Pack $(SolutionName) ($(SolutionPackageType))'
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $raw = '${{ parameters.settingsJson }}'.Trim()
+      if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { Write-Host 'No runtime settings file requested for this layer.'; exit 0 }
+      try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]Settings JSON is invalid. Check the approved variable group or Key Vault source.'; exit 1 }
+      $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+      New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+      $settingsPath = Join-Path $settingsDirectory '$(SolutionName)-settings.json'
+      Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+      Write-Host 'Runtime settings file generated in the pipeline workspace.'
+      Write-Host "##vso[task.setvariable variable=SettingsFilePath;issecret=true]$settingsPath"
+    displayName: 'Generate ephemeral settings file from approved secret storage'
 
   - script: |
       pac auth create ^
@@ -83,14 +124,17 @@ steps:
     env:
       ClientSecret: $(ClientSecret)
 
-  - script: |
-      pac solution import ^
-        --path "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
-        --activate-plugins true ^
-        --force-overwrite true ^
-        --publish-changes true ^
-        --skip-dependency-check false
-    displayName: 'Import $(ProjectCode)_Security to ${{ parameters.targetEnvironment }}'
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $pacArgs = @('solution','import','--path','$(OutputPath)\$(SolutionName)_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+      if (-not [string]::IsNullOrWhiteSpace('$(SettingsFilePath)') -and (Test-Path '$(SettingsFilePath)')) { $pacArgs += @('--settings-file','$(SettingsFilePath)') }
+      pac @pacArgs
+    displayName: 'Import $(SolutionName) to ${{ parameters.targetEnvironment }}'
+
+  - powershell: |
+      if (-not [string]::IsNullOrWhiteSpace('$(SettingsFilePath)') -and (Test-Path '$(SettingsFilePath)')) { Remove-Item -Path '$(SettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+    displayName: 'Delete ephemeral settings file'
+    condition: always()
 
   - publish: $(OutputPath)
     artifact: 'security-${{ parameters.targetEnvironment }}-$(Build.BuildId)'

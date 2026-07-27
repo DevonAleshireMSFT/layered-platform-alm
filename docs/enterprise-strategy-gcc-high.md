@@ -48,4 +48,59 @@ If you are adopting LP-ALM as part of a government Power Platform program:
 
 ---
 
+## LP-ALM Tier Model for Government Delivery
+
+LP-ALM uses tiers so programs can right-size physical solution layers without weakening
+the government control floor.
+
+| Tier | Required Solutions | Use When |
+|---|---|---|
+| Minimum | `{ProjectCode}_Security`, `{ProjectCode}_Core`, `{ProjectCode}_UI_Operations` | Small applications with no external integrations, no cross-boundary or CUI movement, and no privileged admin UI |
+| Standard | Minimum + `{ProjectCode}_Automation` | Automation exists, but integrations are not shared, cross-boundary, or independently governed |
+| Enterprise | Standard + warranted optional layers such as `{ProjectCode}_Integration`, `{ProjectCode}_UI_Admin`, reporting, or test data | CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, or external ATO dependencies exist |
+
+Every tier still requires `_Security` first, schema only in `_Core`, schema-free UI
+solutions, managed-only Test and Prod, service-account or other approved non-personal
+connection bindings, GCC High URLs ending in `.crm.microsoftdynamics.us`, and PAC
+authentication using `--cloud UsGovHigh`.
+
+---
+
+## Tier Selection Requires Justification
+
+Tier selection must be recorded before implementation as an ADR-style decision. The
+record must identify the selected tier, facts supporting the decision, rejected
+alternatives, and where evidence will be kept for audit review.
+
+- **Minimum** is allowed only when there are no external integrations, no cross-boundary
+  or CUI data movement, and no privileged admin UI.
+- **Standard** applies when automation exists but integrations are not shared,
+  cross-boundary, or independently governed.
+- **Enterprise** is required when CUI exchange, shared connection references,
+  cross-system orchestration, separately governed integrations, or external ATO
+  dependencies exist.
+
+This rule prevents teams from selecting a smaller tier to avoid governance. Smaller
+tiers reduce empty solutions; they do not reduce required controls.
+
+---
+
+## Auditor Evidence Model
+
+When `_Config` is not used as a mandated solution, configuration governance is proven
+through linked non-secret evidence:
+
+| Evidence | Purpose |
+|---|---|
+| Environment Configuration Register | Authoritative metadata record for CM-2, CM-3, and CM-6: logical name, environment, owner, required/optional status, secret classification, source variable name / Key Vault reference, approval/change reference, and last-reviewed date |
+| Azure Key Vault / Azure DevOps audit logs | Evidence that values and secrets are stored, accessed, and changed through approved systems without exposing raw values in source control |
+| Approval and change records | Evidence of authorized configuration changes and tier decisions |
+| Deployment run history | Evidence that managed solutions were deployed to Test and Prod through approved Azure DevOps pipelines and Config Gate checks |
+
+The evidence model stores metadata and references only. It must never include client
+secrets, passwords, API keys, connection strings, tenant secrets, or raw environment
+variable values.
+
+---
+
 *LP-ALM is part of the [GovFLOW](https://devonaleshiremsft.github.io/gov-flow/) ecosystem.*
