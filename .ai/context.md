@@ -27,14 +27,23 @@
 | Test | Managed | `https://{org}-test.crm.microsoftdynamics.us` | Azure DevOps pipeline |
 | Prod | Managed | `https://{org}.crm.microsoftdynamics.us` | Azure DevOps pipeline |
 
-**Cloud:** GCC High — all URLs use `.crm.microsoftdynamics.us`
-**Admin Center:** `https://gcc.admin.powerplatform.microsoft.us`
+**Cloud context example:** GCC High environments use `.crm.microsoftdynamics.us`
+**Admin Center example:** `https://gcc.admin.powerplatform.microsoft.us`
 
 ---
 
 ## LP-ALM Model: Mandatory Invariants + Optional Layers
 
 LP-ALM starts with ordered mandatory invariants and adds optional governed solution layers only when justified.
+
+### Authoring Principles
+
+LP-ALM is a secure framework, not an authority over every tenant, agency, impact level, or identity policy.
+
+- Use **RECOMMENDED** and **SHOULD** for controls outside the framework's authority.
+- Reserve **MUST**, **REQUIRED**, and equivalent language for true framework invariants: `_Security` deploys first, `_Core` owns schema, `_Config` and raw values are never committed, zero secrets are written to source, UI solutions are schema-free, and upper environments receive managed solutions.
+- Treat GCC High, IL4, IL5, FedRAMP, and similar regulated environments as example contexts where secure-environment controls are often useful.
+- For connection references, the recommended default is a dedicated service account. When unavailable, use a least-privilege delegated identity with documented ownership, credential rotation, approval authority, and environment-register evidence.
 
 ### Mandatory invariants
 
@@ -65,11 +74,11 @@ LP-ALM starts with ordered mandatory invariants and adds optional governed solut
 | **Standard** | Minimum + Automation | Automation exists but integrations are not shared, cross-boundary, or independently governed |
 | **Enterprise** | Standard + Integration + multiple UIs as warranted | CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, external ATO dependencies, or admin separation exist |
 
-Tier selection requires ADR-style justification. Minimum means fewer components, not weaker controls.
+Use ADR-style justification for tier selection. Minimum means fewer components, not weaker controls.
 
 ---
 
-## Government Floor — Applies in Every Tier
+## Secure-Environment Floor — Applies in Every Tier
 
 - `_Security` is always separate and deploys first in every environment.
 - `_Core` is the only schema layer.
@@ -77,8 +86,8 @@ Tier selection requires ADR-style justification. Minimum means fewer components,
 - Test and Prod receive managed solutions only; Dev receives unmanaged.
 - Environment-specific values, secrets, tenant identifiers, connection bindings, and raw configuration values are never committed.
 - Values are deployment-controlled artifacts backed by approved secret storage and documented by a non-secret environment configuration register.
-- Connection references use service accounts or another approved non-personal credential model in upper environments.
-- GCC High URLs use `.crm.microsoftdynamics.us`; PAC CLI auth uses `--cloud UsGovHigh`.
+- Connection references SHOULD use dedicated service accounts in upper environments. If service accounts are unavailable, use a least-privilege delegated identity with documented ownership, credential rotation, approval authority, and environment-register evidence.
+- Sovereign-cloud settings SHOULD match the target tenant. For example, GCC High URLs use `.crm.microsoftdynamics.us`, and PAC CLI auth uses `--cloud UsGovHigh`.
 
 ---
 
@@ -88,7 +97,7 @@ Do **not** present `_Config` as a required layer.
 
 - Environment variable **definitions** live in `{ProjectCode}_Core`.
 - Environment variable **values** and connection bindings are deployment-controlled data supplied through approved secret-backed mechanisms.
-- The environment configuration register stores metadata only: logical name, environment, owner, required/optional status, secret classification, source variable name, and last-reviewed date.
+- The environment configuration register stores metadata only: logical name, environment, owner, needed/optional status, secret classification, source variable name, and last-reviewed date.
 - A dedicated unmanaged `{ProjectCode}_Config` solution is allowed only as a documented high-control / audit-anchor alternative. It is manually applied, never committed, never referenced by pipelines, and must not contain secrets.
 
 ---
@@ -114,11 +123,11 @@ Do **not** present `_Config` as a required layer.
 
 3. **`_Security` deploys first.** Always. In every environment. The pipeline enforces this with dependency gates.
 
-4. **Connection references use service accounts, not personal credentials.** The connection binding in the environment uses a service account or approved non-personal model. No personal email address should appear in a connection reference.
+4. **Connection references SHOULD use service accounts, not personal credentials.** The recommended default is a dedicated service account. If unavailable, use a least-privilege delegated identity with documented ownership, credential rotation, approval authority, and environment-register evidence.
 
 5. **Upper environments (Test, Prod) receive managed solutions only.** Dev receives unmanaged. Do not deploy a managed solution to Dev.
 
-6. **The pipeline service principal requires the System Administrator built-in role** (not a custom role) to deploy security roles. This is a Dataverse platform constraint (`prvWriteRole`).
+6. **The pipeline service principal uses the System Administrator built-in role** (not a custom role) when deploying security roles. This reflects the Dataverse platform constraint for `prvWriteRole`.
 
 ---
 
@@ -131,7 +140,7 @@ Do **not** present `_Config` as a required layer.
 | Optional unmanaged `_Config` | Allowed only with justification | Supports high-control audit evidence without weakening the no-source/no-pipeline rule |
 | Managed solutions in Test/Prod | Yes | Prevents ad-hoc customization bypass; supports CM-3 change control |
 | Per-layer pipelines + orchestration | Yes | Enables independent layer hotfixes + coordinated full deploys |
-| Service principal auth only | Yes | GCC High does not support interactive login for pipelines |
+| Service principal auth preferred for pipelines | Yes | Recommended for non-interactive, auditable deployments; sovereign or regulated environments such as GCC High commonly use non-interactive authentication patterns |
 | Single publisher per project | Yes | Prevents namespace collisions; schema prefix is consistent |
 | Web resource split | Physical dependency direction | Integrity/schema-adjacent files live in `_Core`; UX-only files live in UI; `_Core` never depends on UI |
 
@@ -166,9 +175,9 @@ solutions/
 - All column logical names use prefix: `{prefix}_columnname`.
 - Primary name column pattern: `{prefix}_{entityname}name` (e.g., `sys_assetname`).
 - Primary key column pattern: `{prefix}_{entityname}id` (e.g., `sys_assetid`).
-- Environment URLs always end in `.crm.microsoftdynamics.us` for this project.
+- Environment URLs should match the target cloud; for GCC High examples, use `.crm.microsoftdynamics.us`.
 - Flow expressions referencing tables use the logical name with prefix.
-- PAC CLI commands must include `--cloud UsGovHigh` for auth commands.
+- PAC CLI auth commands should include the target cloud flag when the environment needs one; for GCC High examples, use `--cloud UsGovHigh`.
 - Solution names always follow `{ProjectCode}_{Layer}`; operational UI is `{ProjectCode}_UI_Operations`, not `_UI_User`.
 - Web resources that support data integrity, validation, or Core forms belong in `_Core`; UX-only web resources belong in UI.
 

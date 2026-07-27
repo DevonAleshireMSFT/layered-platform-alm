@@ -25,7 +25,7 @@
 
 ### `{prefix}_{tablename}` — {Display Name}
 
-| Display Name | Logical Name | Type | Required | Notes |
+| Display Name | Logical Name | Type | Need Level | Notes |
 |---|---|---|---|---|
 | *(add columns)* | `{prefix}_{columnname}` | Text / Lookup / Choice / DateTime / etc. | Yes/No | |
 
