@@ -25,7 +25,7 @@ permalink: /security-roles/
 | `{ProjectCode} - Contributor` | Standard User | Create and manage own records |
 | `{ProjectCode} - Read Only` | Viewer | Read access only, no modification |
 | `{ProjectCode} - Support` | Help Desk / Support Staff | Read + Update for troubleshooting |
-| `{ProjectCode} - Automation Service` | Service Account | Used by Power Automate flows |
+| `{ProjectCode} - Automation Service` | Automation Identity | Recommended default role for dedicated service account connections; may also support approved least-privilege delegated fallback identities |
 | `{ProjectCode} - Operations User` | Operations UI User | Least-privilege access for `{ProjectCode}_UI_Operations` |
 | `{ProjectCode} - Admin UI Operator` | Admin UI User | Privileged UI access for `{ProjectCode}_UI_Admin`; separate from System Administrator |
 
@@ -66,12 +66,13 @@ permalink: /security-roles/
 | `{prefix}_{table2}` | Org C,R,U,D,A,AS,Asn,S | BU C,R,U,D,A,AS | BU R | BU R,U | Org C,R,U,D,A,AS | BU R,U,A,AS | Org R,U,A,AS |
 | `{prefix}_{table3}` | Org C,R,U,D,A,AS,Asn,S | BU R | BU R | BU R | Org R | BU R | Org R |
 
-### Required Relationship Review: Append / Append To
+### Relationship Review: Append / Append To
 
 For every lookup column or relationship a role traverses, explicitly document **both**
 sides of the relationship. Do not rely on CRUD access to imply association privileges.
-Every role that creates, updates, automates, or uses records across a relationship must
-have the appropriate Append and Append To entries in this matrix.
+Every role that creates, updates, automates, or uses records across a relationship should
+have the appropriate Append and Append To entries in this matrix. Treat missing entries as
+a security and reliability risk to review before release.
 
 | Relationship / Lookup Column | On Table | Role Traversing Relationship | Append Required On | Append To Required On | Verified |
 |---|---|---|---|---|---|
@@ -81,6 +82,17 @@ have the appropriate Append and Append To entries in this matrix.
 
 Failure to set both Append and Append To results in cryptic "access denied" errors when users
 attempt to associate records, even if they have full CRUD access on both tables.
+
+---
+
+## Automation Identity Guidance
+
+Dedicated service accounts are the recommended default for connection references and
+Power Automate runtime ownership. If a team cannot provision dedicated service accounts,
+record the approved fallback in the Environment Register and bind the connection to a
+least-privilege delegated identity with documented owner/steward, backup ownership, and
+rotation or periodic review evidence. The `{ProjectCode} - Automation Service` role should
+represent the privileges needed by that connection identity, not broad personal-user access.
 
 ---
 
@@ -139,16 +151,16 @@ all team members. Team members acquire the intended team-scoped privileges throu
 membership.
 
 > **Reminder:** Team records are environment data — they are not solution components and cannot be
-> pipeline-deployed. Teams must be created manually in each environment after solution import.
+> pipeline-deployed. Teams are typically created manually in each environment after solution import, with evidence recorded in the Environment Register.
 
 ---
 
 ## UI Role Considerations
 
-`{ProjectCode}_UI_Operations` and `{ProjectCode}_UI_Admin` must remain schema-free.
+`{ProjectCode}_UI_Operations` and `{ProjectCode}_UI_Admin` should remain schema-free.
 Their roles grant access to existing `_Core` tables and `_Security` privileges only.
-Admin UI roles must not be used as a substitute for the Dataverse built-in System
-Administrator role required by the pipeline service principal for security-role deployment.
+Admin UI roles should not be used as a substitute for the Dataverse built-in System
+Administrator role needed by the pipeline service principal for security-role deployment.
 
 For every command, form, flow trigger, or related-record operation exposed through either
 UI solution, add the traversed relationship to the Append / Append To review table above.
