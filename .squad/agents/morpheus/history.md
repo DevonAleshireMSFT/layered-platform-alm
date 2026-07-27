@@ -23,3 +23,5 @@
 📌 Team update (2026-07-27T08:06:36-07:00): Completed the LP-ALM recommendation review; `docs/lp-alm-refinement-plan.md` is the deliverable.
 
 📌 Team update (2026-07-27T08:52:59.7276295-07:00): LP-ALM implementation batch shipped in commit d4498b7; .ai/context.md and .ai/layers.md aligned to the refined LP-ALM model. — recorded by Scribe
+
+📌 Team update (2026-07-27T11:24:45-07:00): AI grounding files were reframed to align with LP-ALM Authoring Principles; mandate language now stays limited to framework invariants, with documented fallback guidance for externally owned controls. — recorded by Scribe

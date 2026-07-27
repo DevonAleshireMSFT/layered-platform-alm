@@ -41,3 +41,9 @@
 **What:** Government and compliance docs are reframed from GCC High-specific mandates into secure-environment recommendations, including service-account fallback evidence patterns.
 **Why:** LP-ALM should support GCC High, IL4, IL5, FedRAMP, and adjacent secure deployments without implying every environment has identical mandatory platform requirements.
 
+### 2026-07-27: AI grounding files mandate reframe
+
+**By:** Morpheus
+**What:** AI grounding files (`.ai/context.md`, `.ai/layers.md`, `.ai/conventions.md`, `.ai/schema.md`) now mirror LP-ALM Authoring Principles: recommend rather than mandate externally owned controls, document service-account fallback, and frame GCC High, IL4, and IL5 as example secure-environment contexts.
+**Why:** Keeps AI guidance aligned with framework-owned invariants while avoiding overreach into tenant, identity, and sovereign-cloud policy.
+
