@@ -21,3 +21,10 @@
 **By:** Neo, informed by Morpheus, Tank, Niobe, Dozer, Link, and Fact Checker
 **What:** Evolve LP-ALM from a fixed five-layer prescription into a methodology centered on non-negotiable invariants with optional governed layers. `_Config` becomes an optional governed pattern rather than a mandatory source-controlled or pipeline layer. The deliverable refinement plan is `docs/lp-alm-refinement-plan.md`.
 **Why:** Architecture, Dataverse mechanics, GCC High governance, pipeline feasibility, synthesis, and devil's-advocate reviews converged on preserving core ALM/security invariants while allowing project-specific layer choices and explicit mitigations.
+
+### 2026-07-27: UI solution naming — avoid "User"
+
+**By:** Devon Aleshire (via Copilot CLI)
+**What:** Do NOT name the user-facing UI solution `_UI_User` (the word "User" causes a previously-noted issue — likely collision/confusion with the Dataverse `systemuser` / "User" concept). Use **`{ProjectCode}_UI_Operations`** for the operational/user-facing UI solution instead. Keep `{ProjectCode}_UI_Admin` for the admin UI. Naming pattern for the UI split is therefore `_UI_Operations` + `_UI_Admin`.
+**Why:** User directive during LP-ALM refinement — "Do not use UI_User ... per the previous noted issue with User." Applies framework-wide and in all LP-ALM docs, templates, and pipelines going forward.
+

@@ -23,3 +23,5 @@
 - All GCC High URLs use `.crm.microsoftdynamics.us`.
 
 📌 Team update (2026-07-27T08:06:36-07:00): Completed the LP-ALM recommendation review; `docs/lp-alm-refinement-plan.md` is the deliverable.
+
+📌 Team update (2026-07-27T08:52:59.7276295-07:00): LP-ALM implementation batch shipped in commit d4498b7; docs/component-placement-decision-tree.md, .ai/conventions.md, and .ai/schema.md updated for Config Gate, web-resource split, and naming. — recorded by Scribe

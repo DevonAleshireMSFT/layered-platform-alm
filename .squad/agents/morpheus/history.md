@@ -21,3 +21,5 @@
 - Coordinator goes by **Neo** (per Devon's preference).
 
 📌 Team update (2026-07-27T08:06:36-07:00): Completed the LP-ALM recommendation review; `docs/lp-alm-refinement-plan.md` is the deliverable.
+
+📌 Team update (2026-07-27T08:52:59.7276295-07:00): LP-ALM implementation batch shipped in commit d4498b7; .ai/context.md and .ai/layers.md aligned to the refined LP-ALM model. — recorded by Scribe

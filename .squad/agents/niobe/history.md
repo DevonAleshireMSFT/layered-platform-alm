@@ -23,3 +23,5 @@
 - `docs/environment-register-template.md` — environment URLs, service principals, teams
 
 📌 Team update (2026-07-27T08:06:36-07:00): Completed the LP-ALM recommendation review; `docs/lp-alm-refinement-plan.md` is the deliverable.
+
+📌 Team update (2026-07-27T08:52:59.7276295-07:00): LP-ALM implementation batch shipped in commit d4498b7; Environment register, onboarding checklist, enterprise strategy, and security role matrix updated with CM controls, tier ADR, and roles. — recorded by Scribe
