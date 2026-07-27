@@ -1,23 +1,14 @@
 # ============================================================
-# LP-ALM: Deploy _UI Layer (Individual)
+# LP-ALM: Deploy UI Layer (Individual)
 # deploy-ui.yml
 #
-# Deploys only the _UI (apps, site maps, dashboards) layer
-# to the target environment.
-#
-# Pre-conditions:
-#   1. _Security deployed to target
-#   2. _Core deployed to target
-#   3. _Config manually applied to target
-#   4. _Automation deployed to target
-#
-# The _UI layer must NEVER contain schema (tables, columns).
-# If it does, the PR validation pipeline will catch it first.
-# If somehow it reaches here, the import will fail with a
-# dependency error pointing back to _Core.
+# Deploys the UI layer to the target environment. Dev imports
+# unmanaged packages; Test and Prod import managed packages. Optional
+# runtime settings are generated from approved secret-backed pipeline
+# sources, passed to PAC CLI, then deleted from the workspace.
 # ============================================================
 
-trigger: none  # Manually triggered or called from deploy-all.yml
+trigger: none
 
 parameters:
   - name: targetEnvironment
@@ -25,25 +16,50 @@ parameters:
     type: string
     default: 'test'
     values:
+      - dev
       - test
       - prod
 
   - name: uiSolutionSuffix
     displayName: 'UI Solution Suffix'
     type: string
+    default: '_Operations'
+    values:
+      - '_Operations'
+      - '_Admin'
+
+  - name: requiredEnvironmentVariableValues
+    displayName: 'Required value checks as logicalName=$(Approved.Variable);...'
+    type: string
     default: ''
-    # Controls which _UI solution is deployed. Examples:
-    #   ''        → deploys {ProjectCode}_UI          (single or primary user app)
-    #   '_Admin'  → deploys {ProjectCode}_UI_Admin    (admin / elevated-access app)
-    #   '_User'   → deploys {ProjectCode}_UI_User     (if primary was renamed with suffix)
-    #
-    # When a project has multiple UI solutions, call this pipeline once per solution:
-    #   Step 1: uiSolutionSuffix = ''       → deploys {ProjectCode}_UI
-    #   Step 2: uiSolutionSuffix = '_Admin' → deploys {ProjectCode}_UI_Admin
-    # Both steps run in the UI phase after _Automation is deployed.
+
+  - name: requiredConnectionBindings
+    displayName: 'Required binding checks as logicalName=$(Approved.ConnectionVariable);...'
+    type: string
+    default: ''
+
+  - name: settingsJson
+    displayName: 'Optional settings JSON from approved ADO variable group / Key Vault macro'
+    type: string
+    default: ''
 
 variables:
   - group: SYSTRK-Common
+
+  - ${{ if eq(parameters.targetEnvironment, 'dev') }}:
+    - group: SYSTRK-Dev
+    - name: EnvironmentUrl
+      value: $(Dev.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Dev.ApplicationId)
+    - name: TenantId
+      value: $(Dev.TenantId)
+    - name: ClientSecret
+      value: $(Dev.ClientSecret)
+    - name: SolutionPackageType
+      value: Unmanaged
+    - name: SolutionZipSuffix
+      value: unmanaged
 
   - ${{ if eq(parameters.targetEnvironment, 'test') }}:
     - group: SYSTRK-Test
@@ -55,6 +71,10 @@ variables:
       value: $(Test.TenantId)
     - name: ClientSecret
       value: $(Test.ClientSecret)
+    - name: SolutionPackageType
+      value: Managed
+    - name: SolutionZipSuffix
+      value: managed
 
   - ${{ if eq(parameters.targetEnvironment, 'prod') }}:
     - group: SYSTRK-Prod
@@ -66,20 +86,40 @@ variables:
       value: $(Prod.TenantId)
     - name: ClientSecret
       value: $(Prod.ClientSecret)
+    - name: SolutionPackageType
+      value: Managed
+    - name: SolutionZipSuffix
+      value: managed
 
   - name: SolutionVersion
     value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
 
-  - name: UISolutionName
-    value: '$(ProjectCode)_UI${{ parameters.uiSolutionSuffix }}'
-
   - name: OutputPath
-    value: '$(Build.ArtifactStagingDirectory)/solutions'
+    value: '$(Build.ArtifactStagingDirectory)\solutions'
+
+  - name: SolutionName
+    value: '$(ProjectCode)_UI${{ parameters.uiSolutionSuffix }}'
 
 pool:
   vmImage: 'windows-latest'
 
 steps:
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      function Test-RequiredMap($label, $mapText) {
+        if ([string]::IsNullOrWhiteSpace($mapText)) { Write-Host "$label check has no required entries."; return }
+        foreach ($entry in ($mapText -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+          $parts = $entry.Split('=', 2)
+          if ($parts.Count -ne 2 -or [string]::IsNullOrWhiteSpace($parts[0])) { Write-Host "##vso[task.logissue type=error]Invalid $label validation entry. Use logicalName=variableMacro format."; exit 1 }
+          $name = $parts[0].Trim(); $value = $parts[1].Trim()
+          if ([string]::IsNullOrWhiteSpace($value) -or $value.StartsWith('$(')) { Write-Host "##vso[task.logissue type=error]Missing required $label entry: $name"; exit 1 }
+          Write-Host "$label entry validated: $name"
+        }
+      }
+      Test-RequiredMap 'environment value' '${{ parameters.requiredEnvironmentVariableValues }}'
+      Test-RequiredMap 'connection binding' '${{ parameters.requiredConnectionBindings }}'
+    displayName: 'Config Gate: validate required runtime values and bindings'
+
   - task: PowerPlatformToolInstaller@2
     displayName: 'Install Power Platform Tools (PAC CLI)'
     inputs:
@@ -87,11 +127,24 @@ steps:
 
   - script: |
       pac solution pack ^
-        --zipfile "$(OutputPath)/$(UISolutionName)_managed.zip" ^
-        --folder "$(Build.SourcesDirectory)/solutions/$(UISolutionName)/src" ^
-        --packagetype Managed ^
+        --zipfile "$(OutputPath)\$(SolutionName)_$(SolutionZipSuffix).zip" ^
+        --folder "$(Build.SourcesDirectory)\solutions\$(SolutionName)\src" ^
+        --packagetype $(SolutionPackageType) ^
         --solutionversion "$(SolutionVersion)"
-    displayName: 'Pack $(UISolutionName) (Managed)'
+    displayName: 'Pack $(SolutionName) ($(SolutionPackageType))'
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $raw = '${{ parameters.settingsJson }}'.Trim()
+      if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { Write-Host 'No runtime settings file requested for this layer.'; exit 0 }
+      try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]Settings JSON is invalid. Check the approved variable group or Key Vault source.'; exit 1 }
+      $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+      New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+      $settingsPath = Join-Path $settingsDirectory '$(SolutionName)-settings.json'
+      Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+      Write-Host 'Runtime settings file generated in the pipeline workspace.'
+      Write-Host "##vso[task.setvariable variable=SettingsFilePath;issecret=true]$settingsPath"
+    displayName: 'Generate ephemeral settings file from approved secret storage'
 
   - script: |
       pac auth create ^
@@ -105,15 +158,18 @@ steps:
     env:
       ClientSecret: $(ClientSecret)
 
-  - script: |
-      pac solution import ^
-        --path "$(OutputPath)/$(UISolutionName)_managed.zip" ^
-        --activate-plugins true ^
-        --force-overwrite true ^
-        --publish-changes true ^
-        --skip-dependency-check false
-    displayName: 'Import $(UISolutionName) to ${{ parameters.targetEnvironment }}'
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $pacArgs = @('solution','import','--path','$(OutputPath)\$(SolutionName)_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+      if (-not [string]::IsNullOrWhiteSpace('$(SettingsFilePath)') -and (Test-Path '$(SettingsFilePath)')) { $pacArgs += @('--settings-file','$(SettingsFilePath)') }
+      pac @pacArgs
+    displayName: 'Import $(SolutionName) to ${{ parameters.targetEnvironment }}'
+
+  - powershell: |
+      if (-not [string]::IsNullOrWhiteSpace('$(SettingsFilePath)') -and (Test-Path '$(SettingsFilePath)')) { Remove-Item -Path '$(SettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+    displayName: 'Delete ephemeral settings file'
+    condition: always()
 
   - publish: $(OutputPath)
-    artifact: 'ui-${{ parameters.targetEnvironment }}-$(Build.BuildId)'
+    artifact: 'ui-${{ parameters.targetEnvironment }}-${{ parameters.uiSolutionSuffix }}-$(Build.BuildId)'
     displayName: 'Publish Solution Artifact'

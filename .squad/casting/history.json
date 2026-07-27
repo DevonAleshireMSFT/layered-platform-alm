@@ -1,0 +1,23 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "The Matrix",
+      "assignment_id": "lpalm-2026-07-27",
+      "used_at": "2026-07-27T07:58:41-07:00"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "lpalm-2026-07-27": {
+      "universe": "The Matrix",
+      "agents": {
+        "coordinator": "Neo",
+        "lead-architect": "Morpheus",
+        "powerplatform-engineer": "Tank",
+        "devops-engineer": "Dozer",
+        "gov-compliance": "Niobe",
+        "methodology-writer": "Link"
+      },
+      "created_at": "2026-07-27T07:58:41-07:00"
+    }
+  }
+}

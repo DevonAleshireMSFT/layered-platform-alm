@@ -50,6 +50,12 @@ permalink: /onboarding/
 - [ ] Read [LP-ALM.md](LP-ALM.md) — full methodology (Section 2 at minimum)
 - [ ] Review [docs/security-role-matrix-template.md](docs/security-role-matrix-template.md)
 - [ ] Review [docs/component-placement-decision-tree.md](docs/component-placement-decision-tree.md)
+- [ ] Confirm the non-negotiable government floor:
+  - `_Security` deploys first
+  - `_Core` owns all schema
+  - UI solutions contain no tables, columns, relationships, or other schema
+  - Test and Prod receive managed solutions only
+  - Configuration values, connection bindings, and secrets are never committed
 
 ### First Contribution
 
@@ -71,7 +77,15 @@ permalink: /onboarding/
 
 ## Part 2: New Project Setup Checklist
 
-### Phase 1: Publisher and Solutions (in Dev environment)
+### Phase 1: Tier Selection, Publisher, and Solutions (in Dev environment)
+
+- [ ] Select the project tier and record an ADR-style justification:
+  - [ ] **Minimum** — `{ProjectCode}_Security`, `{ProjectCode}_Core`, `{ProjectCode}_UI_Operations`
+  - [ ] **Standard** — Minimum + `{ProjectCode}_Automation`
+  - [ ] **Enterprise** — Standard + warranted optional layers such as `{ProjectCode}_Integration`, `{ProjectCode}_UI_Admin`, reporting, or test data
+- [ ] ADR includes selected tier, facts supporting the tier, rejected alternatives, and evidence location.
+- [ ] Confirm **Minimum** is used only when there are no external integrations, no cross-boundary or CUI data movement, and no privileged admin UI.
+- [ ] Confirm **Enterprise** is used when CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, or external ATO dependencies exist.
 
 - [ ] Create publisher in Dev:
   - Display Name: `{Project Name} Platform`
@@ -79,12 +93,17 @@ permalink: /onboarding/
   - Prefix: `{prefix}` (2–5 lowercase alpha chars)
   - Note the prefix — it is permanent after first schema deployment
 
-- [ ] Create five empty solutions in Dev, all linked to the new publisher:
+- [ ] Create tier-appropriate empty solutions in Dev, all linked to the new publisher:
   - [ ] `{ProjectCode}_Security`
   - [ ] `{ProjectCode}_Core`
-  - [ ] `{ProjectCode}_Config`
-  - [ ] `{ProjectCode}_Automation`
-  - [ ] `{ProjectCode}_UI`
+  - [ ] `{ProjectCode}_UI_Operations`
+  - [ ] `{ProjectCode}_Automation` *(Standard / Enterprise when automation exists)*
+  - [ ] `{ProjectCode}_Integration` *(Enterprise when warranted)*
+  - [ ] `{ProjectCode}_UI_Admin` *(when privileged admin capability exists)*
+
+> `_Config` is not a mandated solution. Use the Config Gate by default. A manually
+> applied unmanaged `_Config` solution is allowed only with documented auditor-driven
+> justification, and it is never committed or included in a pipeline.
 
 ### Phase 2: Repository Setup
 
@@ -94,6 +113,7 @@ permalink: /onboarding/
 - [ ] Update `pipelines/*.yml` — replace `SYSTRK` with actual `{ProjectCode}`
 - [ ] Update `pipelines/*.yml` — replace `SYSTRK-Common`, `SYSTRK-Test`, `SYSTRK-Prod` with actual variable group names
 - [ ] Update `docs/environment-register-template.md` with actual environment details
+- [ ] Populate the Configuration Evidence Register with metadata only: logical name, environment, owner, required/optional status, secret classification, source variable name / Key Vault reference, approval/change reference, and last-reviewed date
 - [ ] Commit initial repository configuration
 
 ### Phase 3: Service Principal Setup
@@ -108,7 +128,8 @@ permalink: /onboarding/
   Power Platform Admin Center → Environments → {env} → Settings → Users → Application Users → New
   ```
 - [ ] Assign System Administrator role to the Application User in each environment
-- [ ] Document the App ID in `docs/environment-register-template.md` (no secrets in this file)
+- [ ] Confirm pipeline authentication uses service-principal auth with `--cloud UsGovHigh`
+- [ ] Document App ID / tenant references in `docs/environment-register-template.md` as metadata only (no secrets or raw values in this file)
 
 ### Phase 4: Azure DevOps Variable Groups
 
@@ -120,17 +141,18 @@ permalink: /onboarding/
 
 - [ ] Create variable group `{ProjectCode}-Test`:
   - `Test.EnvironmentUrl` = `https://{org}-test.crm.microsoftdynamics.us`
-  - `Test.ApplicationId` = `{app-id}`
-  - `Test.TenantId` = `{tenant-id}`
-  - `Test.ClientSecret` = `{secret}` ← **Mark as secret**
+  - `Test.ApplicationId` = ADO variable or Key Vault reference name only
+  - `Test.TenantId` = ADO variable or Key Vault reference name only
+  - `Test.ClientSecret` = Key Vault-backed or secret variable name only — **mark as secret**
 
 - [ ] Create variable group `{ProjectCode}-Prod`:
   - `Prod.EnvironmentUrl` = `https://{org}.crm.microsoftdynamics.us`
-  - `Prod.ApplicationId` = `{app-id}`
-  - `Prod.TenantId` = `{tenant-id}`
-  - `Prod.ClientSecret` = `{secret}` ← **Mark as secret**
+  - `Prod.ApplicationId` = ADO variable or Key Vault reference name only
+  - `Prod.TenantId` = ADO variable or Key Vault reference name only
+  - `Prod.ClientSecret` = Key Vault-backed or secret variable name only — **mark as secret**
 
 - [ ] Grant pipeline permission to each variable group in Azure DevOps
+- [ ] Confirm each variable group entry is reflected in the Configuration Evidence Register by source variable name / Key Vault reference only, not value
 
 ### Phase 5: Azure DevOps Pipeline Setup
 
@@ -144,7 +166,8 @@ permalink: /onboarding/
   - `{ProjectCode} - Deploy Security`
   - `{ProjectCode} - Deploy Core`
   - `{ProjectCode} - Deploy Automation`
-  - `{ProjectCode} - Deploy UI`
+  - `{ProjectCode} - Deploy Operations UI`
+  - `{ProjectCode} - Deploy Admin UI` *(when `{ProjectCode}_UI_Admin` exists)*
 - [ ] Create Azure DevOps Environment `{ProjectCode}-Test` with no approval gates
 - [ ] Create Azure DevOps Environment `{ProjectCode}-Prod` with manual approval gate (require one approver)
 
@@ -168,29 +191,36 @@ Complete this checklist before running the deploy pipeline to any environment fo
 
 - [ ] `{ProjectCode}_Security` exported, unpacked, and committed to source control
 - [ ] `{ProjectCode}_Core` exported, unpacked, and committed to source control
-- [ ] `{ProjectCode}_Automation` exported, unpacked, and committed to source control
-- [ ] `{ProjectCode}_UI` exported, unpacked, and committed to source control
-- [ ] `{ProjectCode}_Config` **NOT** in source control (verify with `git status`)
-- [ ] PR validation pipeline passes on current branch (all four layers pack successfully)
-- [ ] Schema contamination check passes (`_UI` has no `Entities/` content)
+- [ ] `{ProjectCode}_Automation` exported, unpacked, and committed to source control when automation exists
+- [ ] `{ProjectCode}_Integration` exported, unpacked, and committed to source control when the Enterprise tier requires it
+- [ ] `{ProjectCode}_UI_Operations` exported, unpacked, and committed to source control when user-facing artifacts exist
+- [ ] `{ProjectCode}_UI_Admin` exported, unpacked, and committed to source control when privileged admin UI exists
+- [ ] `_Config` **NOT** in source control (verify with `git status`)
+- [ ] PR validation pipeline passes on current branch (all required tier layers pack successfully)
+- [ ] Schema contamination check passes (`_UI_Operations` and `_UI_Admin` have no `Entities/` content)
 - [ ] Config exclusion check passes (`_Config` directory not present in source)
 
 ### Target Environment Readiness
 
 - [ ] Service principal Application User exists in target environment
 - [ ] System Administrator role assigned to Application User in target environment
-- [ ] `{ProjectCode}_Config` manually imported to target environment
-- [ ] All environment variable values confirmed in target environment
+- [ ] Target environment URL uses the GCC High domain `.crm.microsoftdynamics.us`
+- [ ] Test and Prod deployment package type is managed only; Dev deployment package type is unmanaged
+- [ ] Config Gate confirms all required environment variables have approved source variable names / Key Vault references
+- [ ] Config Gate confirms no raw values, secrets, tenant secrets, connection strings, or generated settings files are committed or published as artifacts
+- [ ] Configuration Evidence Register has current owner, required/optional, secret classification, approval/change reference, and last-reviewed date for each required value
 - [ ] Connection references in target environment bound to service account connections (not personal)
 - [ ] Service account connections verified (not using expiring personal credentials)
 - [ ] No personal email addresses in any connection
+- [ ] If an unmanaged `_Config` solution is used as an auditor-driven exception, its manual application is justified and logged in the Optional `_Config` Application Log with names and approvals only
 
 ### Pipeline Readiness
 
-- [ ] Azure DevOps variable group `{ProjectCode}-{TargetEnv}` populated (including secrets)
+- [ ] Azure DevOps variable group `{ProjectCode}-{TargetEnv}` populated with approved variables and secret-backed references
 - [ ] Pipeline service connection configured and connection test passes
 - [ ] Environment URL in variable group matches actual target URL (`.crm.microsoftdynamics.us` for GCC High)
 - [ ] Correct `--cloud UsGovHigh` flag confirmed in pipeline auth steps
+- [ ] Generated settings file, if used by the Config Gate, is ephemeral, deleted after use, and never published as an artifact
 
 ### Solution Version Check
 
@@ -200,38 +230,25 @@ Complete this checklist before running the deploy pipeline to any environment fo
 
 ---
 
-## Part 4: _Config Management Protocol
+## Part 4: Config Gate Protocol
 
-> `_Config` never enters source control or pipelines. This protocol documents how to manage it.
+> Configuration values are deployment-controlled data. They never enter source control,
+> pipeline artifacts, or documentation as raw values.
 
-### Applying _Config to a New Environment
+### Config Gate Validation
 
-1. Export `_Config` from the reference environment (Dev):
-   ```bash
-   pac solution export --name {ProjectCode}_Config --path ./{ProjectCode}_Config_$(date +%Y%m%d).zip --managed false --overwrite true
-   ```
+1. Confirm every required environment variable definition exists in `{ProjectCode}_Core`.
+2. Confirm each required value has a source variable name or Key Vault reference in the Configuration Evidence Register.
+3. Confirm secret classifications are correct and raw values are not recorded in source, docs, logs, or artifacts.
+4. Confirm connection references are bound to service account or other approved non-personal connections.
+5. Confirm GCC High PAC authentication uses `--cloud UsGovHigh`.
+6. Confirm Test and Prod receive managed solutions only.
+7. Confirm the deployment run, approvals, and variable / Key Vault audit evidence are linked from the register.
 
-2. **Do not unpack or commit the ZIP.**
+### Optional _Config Exception
 
-3. Transfer the ZIP to a secure location (encrypted file share or shared drive — not the repo).
-
-4. Modify environment variable values for the target environment (open ZIP, edit XML, re-ZIP — or use Power Platform import with overwrite to set values interactively).
-
-5. Import to target environment:
-   ```bash
-   pac solution import --path ./{ProjectCode}_Config_{date}.zip --force-overwrite true --publish-changes true
-   ```
-
-6. Verify environment variable values in the target environment via the maker portal.
-
-7. Log the application in `docs/environment-register-template.md` (date, who applied, what changed).
-
-8. Delete the local ZIP from your workstation when done.
-
-### _Config Change Tracking
-
-Since `_Config` is not in source control, changes are tracked in `docs/environment-register-template.md` under the `_Config Application Log` section. Every `_Config` application must be logged with:
-- Date
-- Environment
-- Who applied it
-- Summary of what changed (value names, not values)
+If auditors require a tangible solution-artifact evidence trail, a dedicated unmanaged
+`_Config` solution may be manually applied. It is never committed, never unpacked into
+source control, and never included in a pipeline. Record the application in
+`docs/environment-register-template.md` with date, environment, who applied it, changed
+logical names, approval/change reference, and no values.

@@ -49,7 +49,8 @@
 
 ## Environment Variable Definitions
 
-> These are schema (`_Core` layer). Values are `_Config` and are never committed.
+> These are schema (`_Core` layer). Environment variable values are deployment-controlled Config Gate data and are never committed.
+> Do not track current values in this file or in any committed solution artifact.
 
 | Display Name | Schema Name | Type | Default Value | Used By |
 |---|---|---|---|---|

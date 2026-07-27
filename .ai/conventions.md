@@ -102,23 +102,34 @@ Format:   {ProjectCode}_{Layer}
 Examples:
   SYSTRK_Security
   SYSTRK_Core
-  SYSTRK_Config
   SYSTRK_Automation
-  SYSTRK_UI
+  SYSTRK_UI_Operations
+  SYSTRK_UI_Admin
 ```
 
 - `ProjectCode` is uppercase, 3–8 characters
 - Do not include environment names in solution names
 - The solution name is constant across Dev, Test, and Prod
+- Use `{ProjectCode}_UI_Operations` for the user-facing operational UI solution
+- Use `{ProjectCode}_UI_Admin` only for admin or elevated-access UI capabilities
+- Do not create a committed `{ProjectCode}_Config` solution for environment variable values
+- Optional governed layers still follow `{ProjectCode}_{Layer}` (for example, `{ProjectCode}_Integration`, `{ProjectCode}_Reporting`, `{ProjectCode}_TestData`)
 
 **Unique names (API/programmatic):**
 ```
 systrk_security
 systrk_core
-systrk_config
 systrk_automation
-systrk_ui
+systrk_ui_operations
+systrk_ui_admin
 ```
+
+### Environment Variable Definitions and Values
+
+- Environment variable **definitions** (schema name, type, default) live in `{ProjectCode}_Core`
+- Environment variable **values** are deployment-controlled data supplied through the Config Gate
+- Values are never committed to source control, never published as artifacts, and never included in pipeline solution references
+- A dedicated unmanaged `{ProjectCode}_Config` solution is only an optional audit-anchor alternative when justified; it is manually applied and never committed
 
 ---
 
@@ -157,7 +168,7 @@ GCC High URLs:
   Prod: https://agencyname.crm.microsoftdynamics.us
 ```
 
-**Never hardcode URLs in source control.** URLs are Azure DevOps variable group values or `_Config` values.
+**Never hardcode URLs in source control.** URLs are Azure DevOps variable group values or deployment-controlled Config Gate values.
 
 ---
 

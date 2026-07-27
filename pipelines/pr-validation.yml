@@ -2,16 +2,13 @@
 # LP-ALM: PR Validation Pipeline
 # pr-validation.yml
 #
-# Runs on every Pull Request to 'test' or 'main'.
-# Does NOT deploy to any environment.
-# Validates that all four pipeline-managed layers can be
-# packed without error — catches broken solution XML before
-# it reaches a deployment pipeline.
-#
-# _Config is never validated here (it is not in source control).
+# Validates explicit solution layers and fails on committed runtime
+# value artifacts, forbidden configuration solution artifacts, schema
+# in UI solutions, and detectable reversed Core-to-UI web-resource
+# dependencies. It never deploys to an environment.
 # ============================================================
 
-trigger: none  # Not triggered by direct pushes — PRs only
+trigger: none
 
 pr:
   branches:
@@ -23,104 +20,144 @@ pr:
       - solutions/**
       - pipelines/**
 
+parameters:
+  - name: layerManifest
+    displayName: 'Explicit layer manifest (comma-separated)'
+    type: string
+    default: 'Security,Core,Automation,UI_Operations'
+
 variables:
   - group: SYSTRK-Common
   - name: OutputPath
-    value: '$(Build.ArtifactStagingDirectory)/validation'
+    value: '$(Build.ArtifactStagingDirectory)\validation'
 
 pool:
   vmImage: 'windows-latest'
 
 steps:
-  # ----------------------------------------------------------------
-  # Install PAC CLI
-  # ----------------------------------------------------------------
   - task: PowerPlatformToolInstaller@2
     displayName: 'Install Power Platform Tools (PAC CLI)'
     inputs:
       DefaultVersion: true
 
-  # ----------------------------------------------------------------
-  # Validate: Pack _Security (Managed)
-  # ----------------------------------------------------------------
-  - script: |
-      pac solution pack ^
-        --zipfile "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
-        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Security/src" ^
-        --packagetype Managed
-    displayName: 'Validate Pack: $(ProjectCode)_Security'
-    continueOnError: false
-
-  # ----------------------------------------------------------------
-  # Validate: Pack _Core (Managed)
-  # ----------------------------------------------------------------
-  - script: |
-      pac solution pack ^
-        --zipfile "$(OutputPath)/$(ProjectCode)_Core_managed.zip" ^
-        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Core/src" ^
-        --packagetype Managed
-    displayName: 'Validate Pack: $(ProjectCode)_Core'
-    continueOnError: false
-
-  # ----------------------------------------------------------------
-  # Validate: Pack _Automation (Managed)
-  # ----------------------------------------------------------------
-  - script: |
-      pac solution pack ^
-        --zipfile "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
-        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Automation/src" ^
-        --packagetype Managed
-    displayName: 'Validate Pack: $(ProjectCode)_Automation'
-    continueOnError: false
-
-  # ----------------------------------------------------------------
-  # Validate: Pack _UI (Managed)
-  # ----------------------------------------------------------------
-  - script: |
-      pac solution pack ^
-        --zipfile "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
-        --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src" ^
-        --packagetype Managed
-    displayName: 'Validate Pack: $(ProjectCode)_UI'
-    continueOnError: false
-
-  # ----------------------------------------------------------------
-  # Schema Contamination Check: Verify _UI contains no Entities
-  # ----------------------------------------------------------------
   - powershell: |
-      $uiSrcPath = "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src/Entities"
-      if (Test-Path $uiSrcPath) {
-        $entities = Get-ChildItem -Path $uiSrcPath -Recurse -File
-        if ($entities.Count -gt 0) {
-          Write-Host "##vso[task.logissue type=error]SCHEMA CONTAMINATION DETECTED in _UI layer."
-          Write-Host "##vso[task.logissue type=error]The following schema components were found in $(ProjectCode)_UI/src/Entities/ and must be moved to $(ProjectCode)_Core:"
-          $entities | ForEach-Object { Write-Host "  - $($_.FullName)" }
-          Write-Host "##vso[task.complete result=Failed]"
-          exit 1
+      $ErrorActionPreference = 'Stop'
+      $manifest = @('${{ parameters.layerManifest }}' -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+      $solutionMap = @{
+        Security = '$(ProjectCode)_Security'
+        Core = '$(ProjectCode)_Core'
+        Integration = '$(ProjectCode)_Integration'
+        Automation = '$(ProjectCode)_Automation'
+        UI_Operations = '$(ProjectCode)_UI_Operations'
+        UI_Admin = '$(ProjectCode)_UI_Admin'
+      }
+      foreach ($layer in $manifest) {
+        if (-not $solutionMap.ContainsKey($layer)) { Write-Host "##vso[task.logissue type=error]Unknown layer in PR validation manifest: $layer"; exit 1 }
+        $solutionName = $solutionMap[$layer]
+        $sourcePath = Join-Path '$(Build.SourcesDirectory)' "solutions\$solutionName\src"
+        if (-not (Test-Path $sourcePath)) { Write-Host "##vso[task.logissue type=error]Selected manifest layer $layer is missing at $sourcePath."; exit 1 }
+        $zipPath = Join-Path '$(OutputPath)' "$solutionName`_managed.zip"
+        pac solution pack --zipfile $zipPath --folder $sourcePath --packagetype Managed
+        Write-Host "Validated pack for selected layer: $layer"
+      }
+    displayName: 'Validate pack for explicit layer manifest'
+    continueOnError: false
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $root = '$(Build.SourcesDirectory)'
+      $violations = New-Object System.Collections.Generic.List[string]
+      $candidateFiles = Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object {
+          $_.FullName -notlike "*\.git\*" -and
+          ($_.Name -match '(?i)(settings|deploymentsettings|environmentvariablevalues|environmentvariablevalue).*\.json$' -or $_.FullName -match '(?i)EnvironmentVariableValues|environmentvariablevalue')
+        }
+      foreach ($file in $candidateFiles) {
+        $content = Get-Content -Path $file.FullName -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $content) { continue }
+        if ($content -match '(?i)"Value"\s*:\s*"[^"$][^"]+"' -or $content -match '(?i)"CurrentValue"\s*:\s*"[^"$][^"]+"' -or $content -match '(?i)"ConnectionId"\s*:\s*"[^"$][^"]+"') {
+          $violations.Add((Resolve-Path -Path $file.FullName -Relative))
         }
       }
-      Write-Host "Schema contamination check passed: no Entities found in _UI layer."
-    displayName: 'Schema Contamination Check: _UI must not contain Entities'
-    continueOnError: false
-
-  # ----------------------------------------------------------------
-  # Config Exclusion Check: Verify _Config is not in source
-  # ----------------------------------------------------------------
-  - powershell: |
-      $configPath = "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Config"
-      if (Test-Path $configPath) {
-        Write-Host "##vso[task.logissue type=error]CRITICAL: $(ProjectCode)_Config directory found in source control."
-        Write-Host "##vso[task.logissue type=error]_Config must NEVER be committed. Remove it and update .gitignore."
-        Write-Host "##vso[task.complete result=Failed]"
+      if ($violations.Count -gt 0) {
+        Write-Host '##vso[task.logissue type=error]Committed runtime value/settings artifacts were detected. Values must come from approved secret-backed pipeline sources at runtime.'
+        $violations | Sort-Object -Unique | ForEach-Object { Write-Host "  - $_" }
+        Write-Host '##vso[task.complete result=Failed]'
         exit 1
       }
-      Write-Host "Config exclusion check passed: _Config is not in source control."
-    displayName: 'Config Exclusion Check: _Config must not be in source'
+      Write-Host 'Runtime value artifact check passed.'
+    displayName: 'Fail on committed value-bearing settings artifacts'
     continueOnError: false
 
-  # ----------------------------------------------------------------
-  # Publish validation artifacts (for diff review on failures)
-  # ----------------------------------------------------------------
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $solutionsRoot = Join-Path '$(Build.SourcesDirectory)' 'solutions'
+      $blockedSuffix = '_' + 'Config'
+      $matches = @()
+      if (Test-Path $solutionsRoot) {
+        $matches = Get-ChildItem -Path $solutionsRoot -Recurse -Force -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -like "*$blockedSuffix*" -or $_.FullName -like "*$blockedSuffix*" }
+      }
+      if ($matches.Count -gt 0) {
+        Write-Host '##vso[task.logissue type=error]Forbidden configuration solution artifact detected under solutions. Remove it from source control.'
+        $matches | ForEach-Object { Write-Host "  - $(Resolve-Path -Path $_.FullName -Relative)" }
+        Write-Host '##vso[task.complete result=Failed]'
+        exit 1
+      }
+      Write-Host 'Configuration solution artifact exclusion check passed.'
+    displayName: 'Fail on committed configuration solution artifacts'
+    continueOnError: false
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $solutionsRoot = Join-Path '$(Build.SourcesDirectory)' 'solutions'
+      $violations = New-Object System.Collections.Generic.List[string]
+      if (Test-Path $solutionsRoot) {
+        $uiSolutions = Get-ChildItem -Path $solutionsRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '$(ProjectCode)_UI_*' }
+        foreach ($solution in $uiSolutions) {
+          $src = Join-Path $solution.FullName 'src'
+          if (-not (Test-Path $src)) { continue }
+          Get-ChildItem -Path $src -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $path = $_.FullName
+            if ($path -like '*\Entities\*' -or $path -like '*\EntityRelationships\*' -or $path -like '*\Relationships\*' -or $path -like '*\ManyToManyRelationships\*' -or $path -like '*\OptionSets\*') { $violations.Add((Resolve-Path -Path $path -Relative)) }
+            if ($_.Name -match '(?i)(customizations|solution)\.xml$') {
+              $content = Get-Content -Path $_.FullName -Raw -ErrorAction SilentlyContinue
+              if ($content -match '(?i)<Entity|<EntityRelationship|<attribute|<ManyToManyRelationship|<EntityMap') { $violations.Add((Resolve-Path -Path $path -Relative)) }
+            }
+          }
+        }
+      }
+      if ($violations.Count -gt 0) {
+        Write-Host '##vso[task.logissue type=error]Schema artifacts were detected inside a UI solution. Move tables, columns, and relationships to Core.'
+        $violations | Sort-Object -Unique | ForEach-Object { Write-Host "  - $_" }
+        Write-Host '##vso[task.complete result=Failed]'
+        exit 1
+      }
+      Write-Host 'UI schema contamination check passed.'
+    displayName: 'Fail on schema inside UI solutions'
+    continueOnError: false
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $coreSrc = Join-Path '$(Build.SourcesDirectory)' 'solutions\$(ProjectCode)_Core\src'
+      $violations = New-Object System.Collections.Generic.List[string]
+      if (Test-Path $coreSrc) {
+        Get-ChildItem -Path $coreSrc -Recurse -File -Include *.xml,*.json,*.js -ErrorAction SilentlyContinue | ForEach-Object {
+          $content = Get-Content -Path $_.FullName -Raw -ErrorAction SilentlyContinue
+          if ($null -eq $content) { return }
+          if ($content -match '(?i)(webresource|\$webresource:|library).*(_UI_Operations|_UI_Admin|/ui/|\\ui\\)') { $violations.Add((Resolve-Path -Path $_.FullName -Relative)) }
+        }
+      }
+      if ($violations.Count -gt 0) {
+        Write-Host '##vso[task.logissue type=error]Detectable Core-to-UI web-resource dependency found. Shared or Core-form libraries must live in Core.'
+        $violations | Sort-Object -Unique | ForEach-Object { Write-Host "  - $_" }
+        Write-Host '##vso[task.complete result=Failed]'
+        exit 1
+      }
+      Write-Host 'Core-to-UI web-resource dependency check passed.'
+    displayName: 'Fail on detectable reversed Core-to-UI web-resource dependencies'
+    continueOnError: false
+
   - publish: $(OutputPath)
     artifact: 'pr-validation-$(Build.BuildId)'
     displayName: 'Publish Validation Artifacts'

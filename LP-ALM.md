@@ -40,7 +40,7 @@ render_with_liquid: false
 
 ### 1.1 What LP-ALM Is
 
-Layered Platform ALM (LP-ALM) is a structured application lifecycle management framework for Microsoft Power Platform that decomposes solutions into five discrete, ordered deployment layers: Security, Core, Config, Automation, and UI. Each layer has a defined scope, deployment method, source control treatment, and dependency contract with adjacent layers.
+Layered Platform ALM (LP-ALM) is a structured application lifecycle management framework for Microsoft Power Platform that decomposes solutions around ordered mandatory invariants plus optional solution layers. `_Security` deploys first, `_Core` owns schema, configuration values never enter source control, upper environments receive managed solutions only, and UI solutions remain schema-free. Optional layers are introduced when the workload has the assets, ownership boundaries, or governance triggers that justify them.
 
 LP-ALM exists because monolithic Power Platform solutions — a single solution containing security roles, data schema, flows, environment variables, connection references, and app components — create a class of problems that compound over time: coupled deployments where a UI change requires a full schema re-import, pipeline secrets exposure from environment-specific values committed to source control, security role gaps when tables are created before access controls exist, and merge conflicts across teams when all components share a single solution artifact.
 
@@ -59,9 +59,9 @@ LP-ALM is not appropriate for single-environment prototypes, maker / low-code pr
 
 | Dimension | Monolithic ALM | LP-ALM |
 |---|---|---|
-| Deployment unit | Single solution (everything) | Five targeted solutions |
+| Deployment unit | Single solution (everything) | Mandatory `_Security` + `_Core` foundation with optional targeted layers |
 | Security posture | Security roles deployed with schema | Security exists before schema |
-| Secrets exposure | Environment values in pipelines or source | `_Config` excluded from both |
+| Secrets exposure | Environment values in pipelines or source | Values excluded from source; supplied through the Config Gate or justified optional `_Config` |
 | Blast radius | Full solution reimport for any change | Layer-scoped change and rollback |
 | Team parallelism | One solution, merge conflicts | Layers owned independently |
 | Schema protection | Schema can creep via UI solution | `_UI` structurally cannot contain schema |
@@ -70,17 +70,22 @@ LP-ALM is not appropriate for single-environment prototypes, maker / low-code pr
 
 ### 1.4 Security Architecture Statement (ATO/Security Plan Language)
 
-> The Layered Platform ALM methodology implements a defense-in-depth deployment architecture for Microsoft Power Platform. Security roles and field security profiles are established as the first deployment action in every environment, ensuring that access control structures precede the creation of any data schema, application logic, or user interface. Environment-specific configuration values, including connection strings, shared secret references, and tenant-specific identifiers, are classified as configuration data and are explicitly excluded from source control and automated pipelines. All upper-environment deployments use managed solutions, preventing ad-hoc customization and enforcing change control through the pipeline. Pipeline execution uses service principal application users with the minimum required privileges for each layer. This architecture directly implements NIST SP 800-53 controls AC-2, AC-3, CM-2, CM-3, and SA-3, and is designed to support FedRAMP Moderate and High authorization requirements in Microsoft Azure Government (GCC High) environments.
+> The Layered Platform ALM methodology implements a defense-in-depth deployment architecture for Microsoft Power Platform. Security roles and field security profiles are established as the first deployment action in every environment, ensuring that access control structures precede the creation of any data schema, application logic, or user interface. Environment-specific configuration values, including connection strings, shared secret references, tenant-specific identifiers, and connection bindings, are classified as deployment-controlled configuration data and are explicitly excluded from source control. Values are supplied through approved secret-backed deployment mechanisms and evidenced by a metadata-only environment configuration register, or by a justified optional unmanaged `_Config` solution when auditors require a solution-artifact evidence trail. All upper-environment deployments use managed solutions, preventing ad-hoc customization and enforcing change control through the pipeline. Pipeline execution uses service principal application users with the minimum required privileges for each layer. This architecture directly implements NIST SP 800-53 controls AC-2, AC-3, CM-2, CM-3, CM-6, and SA-3, and is designed to support FedRAMP Moderate and High authorization requirements in Microsoft Azure Government (GCC High) environments.
 
 ---
 
 ## 2. Layer Definitions
 
-The five LP-ALM layers deploy in a fixed sequence. This sequence is not a convention — it is a dependency contract. Each layer assumes the preceding layers are deployed and stable.
+LP-ALM layers deploy according to mandatory dependency invariants, not a fixed requirement to create every possible solution. The sequence is not a convention — it is a dependency contract. Each optional layer is added only when the project has the components or governance boundaries that require it.
 
-**Deployment order:** `_Security` → `_Core` → `_Config` → `_Automation` → `_UI`
+**Mandatory order:** `_Security` → `_Core` → Config Gate → optional `_Integration` → optional `_Automation` → `_UI` / `_UI_Operations` / `_UI_Admin`
 
-> **Note:** `_Config` is deployed manually between `_Core` and `_Automation`. It is never pipeline-automated. The pipeline sequence is therefore: `_Security` → `_Core` → *(manual `_Config`)* → `_Automation` → `_UI`.
+**Tier model:**
+- **Minimum:** `_Security` + `_Core` + one schema-free UI solution.
+- **Standard:** Minimum + `_Automation` when flows, connectors, connection references, scheduled jobs, or automation runtime assets exist.
+- **Enterprise:** Standard + `_Integration` and multiple UI solutions when shared integrations, cross-boundary exchange, CUI movement, external ATO dependencies, separate ownership, or release-cadence differences justify them.
+
+The strict invariants do not change: `_Security` deploys first, `_Core` owns schema, values never enter source control, upper environments receive managed solutions only, and UI solutions cannot contain schema.
 
 ---
 
@@ -161,13 +166,13 @@ The pipeline service principal must hold the **System Administrator** built-in r
 - Security roles (belong in `_Security`)
 - Power Automate flows (belong in `_Automation`)
 - Connection references (belong in `_Automation`)
-- Environment variable current values (belong in `_Config`)
+- Environment variable current values (deployment-controlled values supplied through the Config Gate; optional unmanaged `_Config` only when justified)
 - Canvas apps (belong in `_UI`)
 - Model-driven apps (belong in `_UI`)
 - Site maps (belong in `_UI`)
 - Dashboards (belong in `_UI`)
 
-> **Environment Variable Definitions vs. Values:** The environment variable *definition* (schema — name, type, default value) belongs in `_Core`. The environment variable *value* (the actual value for a specific environment) belongs in `_Config`. These are separate solution components in Dataverse and must be split accordingly.
+> **Environment Variable Definitions vs. Values:** The environment variable *definition* (schema — name, type, default value) belongs in `_Core`. The environment variable *value* (the actual value for a specific environment) is deployment-controlled data. By default, values are supplied through the Config Gate using approved secret-backed variables / Key Vault and an ephemeral `pac solution import --settings-file`; a dedicated unmanaged `_Config` solution is allowed only as a justified high-control alternative and is never committed.
 
 #### Decision Rules
 
@@ -179,7 +184,7 @@ Does this component define how data is accessed or secured?          → _Securi
 Does this component define how data is processed or moved?           → _Automation
 Does this component define how data is displayed in an app?          → _UI
 Is this an environment variable definition (schema only)?            → _Core
-Is this an environment variable value?                               → _Config
+Is this an environment variable value?                               → Config Gate value (optional unmanaged _Config only with justification)
 ```
 
 #### Dependencies
@@ -200,36 +205,46 @@ Is this an environment variable value?                               → _Config
 
 ---
 
-### 2.3 Layer 3: `_Config`
+### 2.3 Configuration Values: Config Gate and Optional `_Config`
 
-**Purpose:** Carry environment-specific values that cannot be environment-agnostic. This layer is the controlled exception to the standard LP-ALM pattern.
+**Purpose:** Keep environment-specific values out of source control while proving that each environment has the required configuration before dependent layers activate.
 
-**Scope:** Environment variable current values, and only environment variable current values. Nothing else.
+**Default pattern:** LP-ALM no longer mandates a dedicated `_Config` solution. The default is the **Config Gate**:
+
+1. Environment variable **definitions** live in `_Core`.
+2. Environment variable **values**, connection bindings, endpoint URLs, tenant identifiers, and secrets are supplied at deployment time from approved secret-backed Azure DevOps variables / Key Vault.
+3. The pipeline may generate an ephemeral settings file for `pac solution import --settings-file`, use it for the import, and delete it immediately. The settings file is never committed, retained, or published as an artifact.
+4. A metadata-only environment configuration register records logical name, environment, owner, required/optional status, secret classification, source variable name, approval/change reference, and last-reviewed date. It never records raw values.
+
+**High-control alternative:** A dedicated **unmanaged** `{ProjectCode}_Config` solution remains allowed when auditors require a tangible solution-artifact evidence trail. This is an opt-out from the default with documented justification, not the baseline. It is manually applied, never committed, never published as a pipeline artifact, and never treated as the authoritative source for secrets.
 
 #### Canonical Component List
 
-**Belongs in `_Config`:**
+**Belongs in the Config Gate / optional `_Config`:**
 - Environment variable current values (the actual value, not the definition)
-- Any component that differs between Dev, Test, and Prod by necessity
+- Connection binding data needed by imports or activation
+- Endpoint URLs, tenant identifiers, and other environment-specific values
 
-**Does NOT belong in `_Config`:**
+**Does NOT belong in the Config Gate / optional `_Config`:**
 - Environment variable definitions (belong in `_Core`)
 - Security roles (belong in `_Security`)
 - Flows (belong in `_Automation`)
 - Any schema component
+- Raw secrets in documentation, source control, logs, or artifacts
 
 #### Decision Rules
 
 ```
-Is this value different in Dev vs. Test vs. Prod?             → _Config
-Is this a secret, API key, URL, or tenant identifier?         → _Config
-Is this a schema definition?                                  → _Core (not _Config)
+Is this value different in Dev vs. Test vs. Prod?             → Config Gate value
+Is this a secret, API key, URL, or tenant identifier?         → Config Gate value / Key Vault-backed secret
+Is this a schema definition?                                  → _Core (not configuration)
 Is this a flow?                                               → _Automation
+Do auditors require a solution-artifact evidence trail?       → Optional unmanaged _Config, justified and never committed
 ```
 
 #### Source Control Exclusion
 
-**`_Config` is NEVER committed to source control. This is non-negotiable.**
+**Configuration values are NEVER committed to source control. This is non-negotiable.**
 
 The rationale: environment variable values frequently contain tenant-specific identifiers, endpoint URLs, and other values that differ between sovereign cloud environments (commercial vs. GCC High). Committing these values risks:
 
@@ -237,29 +252,25 @@ The rationale: environment variable values frequently contain tenant-specific id
 2. Accidentally deploying commercial values into GCC High environments (or vice versa)
 3. Creating a false expectation that source control is the authoritative source for configuration
 
-The authoritative source for `_Config` values is the environment itself (via manual entry) or a secrets management system (Azure Key Vault) — not the repository.
+The authoritative evidence for configuration governance is the environment configuration register plus Key Vault / Azure DevOps audit logs, approvals, and deployment run history. Raw values remain in approved secret storage or in the target environment — not the repository.
 
 #### Deployment Method
 
-**Manual only. No pipeline automation.**
+**Default:** Config Gate validation before any layer that depends on values or bindings. Values are supplied through approved secret-backed deployment inputs and, when needed, an ephemeral `pac solution import --settings-file` file that is generated, used, deleted, and never retained.
 
-The deployment process is:
-1. Export from a reference environment (typically Dev or a config-reference environment)
-2. Modify values for the target environment
-3. Import manually by a person with access to the target environment
-4. Document the values in the environment's configuration management record (not in source control)
+**Optional high-control alternative:** Manually apply an unmanaged `{ProjectCode}_Config` solution only when justified by auditor evidence needs. LP-ALM stops mandating `_Config`; it does not forbid the pattern. Governed defaults apply unless a project opts out with written justification.
 
 #### Pipeline Treatment
 
-Pipelines must not reference, import, or validate `_Config` in any way. No pipeline variable should contain `_Config` values. If a pipeline needs environment-specific values (e.g., a connection reference URL), those are passed as Azure DevOps variable group secrets — they are never read from the `_Config` solution file.
+Pipelines must not import or publish a `_Config` solution. Pipelines may validate the Config Gate, consume secret-backed variables / Key Vault references, and generate ephemeral settings files that are deleted after use. No raw configuration value may appear in source control, pipeline YAML, logs, artifacts, or documentation.
 
 ---
 
 ### 2.4 Layer 4: `_Automation`
 
-**Purpose:** Contain all process automation: Power Automate flows, connection references, and environment variable definitions used by flows.
+**Purpose:** Contain process automation when the project actually has automation assets: Power Automate flows, connection references, custom connectors, scheduled jobs, and data-processing logic.
 
-**Scope:** Automation logic only. No schema, no UI, no security definitions.
+**Scope:** Automation logic only. No schema, no UI, no security definitions. Do not create `_Automation` for a project that genuinely has no flows, connectors, connection references, scheduled jobs, or automation runtime assets.
 
 #### Canonical Component List
 
@@ -276,7 +287,7 @@ Pipelines must not reference, import, or validate `_Config` in any way. No pipel
 - Model-driven apps (belong in `_UI`)
 - Security roles (belong in `_Security`)
 - Environment variable definitions (belong in `_Core`)
-- Environment variable values (belong in `_Config`)
+- Environment variable values (deployment-controlled Config Gate values; optional unmanaged `_Config` only when justified)
 
 #### Decision Rules
 
@@ -287,6 +298,7 @@ Does this component reference a connection?                     → _Automation
 Is this a canvas app?                                          → _UI
 Is this a model-driven app?                                    → _UI
 Does this component define data structure?                      → _Core
+Are there no automation runtime assets?                         → omit _Automation
 ```
 
 #### Dependencies
@@ -294,9 +306,10 @@ Does this component define data structure?                      → _Core
 `_Automation` depends on:
 - `_Security` (flows run as users subject to security roles)
 - `_Core` (flows reference tables and columns)
-- `_Config` (connection reference values and environment variable values must be present)
+- `_Integration` when it consumes shared integration components
+- Config Gate readiness (connection reference values and environment variable values must be present)
 
-**`_Config` must be manually deployed before `_Automation` is pipeline-deployed.** If environment variable values and connection references are not populated, flow activation will fail.
+The Config Gate must pass before `_Automation` is deployed or activated. If environment variable values and connection references are not populated, flow activation will fail.
 
 #### Deployment Method
 
@@ -308,7 +321,7 @@ Does this component define data structure?                      → _Core
 
 #### Source Control
 
-**Yes.** Flow definitions, connection reference schemas, and environment variable definitions are all committed. Connection reference *values* (the actual credential binding) are populated via `_Config` and service account binding — not from source control.
+**Yes.** Flow definitions, connection reference schemas, and environment variable definitions are all committed. Connection reference *values* (the actual credential binding) are populated through the Config Gate and service account binding — not from source control.
 
 #### Connection Reference Binding
 
@@ -338,7 +351,7 @@ Connection references in `_Automation` must be bound to service accounts, not pe
 - Dashboards (shared dashboards, not personal)
 - PCF (Power Apps Component Framework) controls
 - App modules
-- Web resources (JavaScript, HTML, images) that are app-facing
+- Web resources (JavaScript, HTML, images) that are UX-only and app-facing
 - Custom pages
 
 **Does NOT belong in `_UI`:**
@@ -346,7 +359,7 @@ Connection references in `_Automation` must be bound to service accounts, not pe
 - Security roles (belong in `_Security`)
 - Flows (belong in `_Automation`)
 - Connection references (belong in `_Automation`)
-- Environment variables (definitions in `_Core`, values in `_Config`)
+- Environment variables (definitions in `_Core`, values supplied through the Config Gate or justified optional `_Config`)
 
 #### Decision Rules
 
@@ -357,8 +370,9 @@ Is this a dashboard or chart displayed in an app?                   → _UI
 Does this component define a table or column?                        → _Core (not _UI — move it)
 Is this a PCF control?                                              → _UI
 Is this a web resource used by a form?
-  If it defines behavior/validation tied to schema:                  → _Core
-  If it is a display/rendering component:                           → _UI
+  If it enforces data-integrity or schema-adjacent behavior:          → _Core
+  If it is UX-only display/rendering behavior:                       → _UI
+Would a _Core form need to reference a _UI web resource?             → split the physical files; _Core must not depend on _UI
 ```
 
 #### The Schema Contamination Rule
@@ -370,13 +384,23 @@ Is this a web resource used by a form?
 
 Violation of this rule causes a hard dependency failure: `_UI` would import a schema component, creating an unmanaged layer in a managed environment, breaking subsequent `_Core` updates.
 
+#### Web Resource Split Rule
+
+Web resources are split by **physical files** and dependency direction, not by intent alone:
+
+- Data-integrity or schema-adjacent web resources required by `_Core` forms live in `_Core`.
+- UX-only web resources used only by apps, command bars, custom pages, or app-specific rendering live in `_UI`, `{ProjectCode}_UI_Operations`, or `{ProjectCode}_UI_Admin`.
+- `_Core` forms must never depend on `_UI` web resources. If both concerns exist, split the JavaScript into separate physical files so dependencies point from UI to Core, never from Core to UI.
+- Client-side JavaScript is not an integrity boundary. Required fields, relationships, business rules, plugins, server-side logic, and security roles enforce real integrity.
+
 #### Dependencies
 
-`_UI` depends on all preceding layers:
+`_UI` depends on the mandatory foundation and any optional layers it consumes:
 - `_Security` (app access is controlled by security roles)
 - `_Core` (apps reference tables, columns, views, and forms)
-- `_Config` (apps may reference environment variables via connection references)
-- `_Automation` (apps may trigger or display results of flows)
+- Config Gate readiness (apps may reference configured values or connection bindings)
+- `_Automation` when apps trigger or display results of flows
+- `_Integration` only when the UI directly consumes shared integration components
 
 #### Deployment Method
 
@@ -394,40 +418,59 @@ Violation of this rule causes a hard dependency failure: `_UI` would import a sc
 
 ### 2.6 Adapting the Layer Structure
 
-The five-layer sequence is a framework, not a rigid schema. Projects may extend or specialize it to fit their workload — provided the core rules hold: `_Security` always deploys first, `_Config` always remains manual, and no schema ever enters `_UI`.
+LP-ALM is a governed decomposition model, not a mandate to create empty layers. Project teams select a tier and layer set using the decision model below, then record the choice as an ADR-style decision before implementation. See [docs/lp-alm-refinement-plan.md](docs/lp-alm-refinement-plan.md) for the full refinement plan.
 
-**Multiple UI solutions** — When a project has two distinct front-end applications (for example, a user-facing app and an admin app with elevated capabilities), both live in the UI layer as separate solutions:
+#### Layer Decision Model
+
+1. **Always create `_Security`.** It contains roles, field security profiles, protected data access structures, and anything that must enter Test/Prod before schema.
+2. **Always create `_Core`.** It contains all schema: tables, columns, relationships, views, forms, keys, choices, charts, and environment variable definitions.
+3. **Default to the Config Gate; do not mandate `_Config`.** Manage values as environment deployment data through secret-backed pipeline variables / Key Vault, the environment configuration register, and Config Gate validation. Values and connection bindings are never committed to source control. A dedicated unmanaged `_Config` solution remains a recognized high-control alternative only when auditors require a solution-artifact evidence trail; it is never committed and is manually applied with documented justification.
+4. **Create `_Automation` when automation exists.** Use it for flows, custom connectors, connection references, scheduled jobs, and data-processing logic. Do not create it for a project that genuinely has no flows, connectors, connection references, or scheduled jobs.
+5. **Create `_UI` when user-facing artifacts exist.** Use it for model-driven apps, canvas apps, dashboards, site maps, PCF controls, custom pages, and UX web resources. `_UI` cannot contain schema.
+6. **Split UI only for distinct ownership, release cadence, deployment target, persona boundary, or blast radius.** Use `{ProjectCode}_UI_Operations` and `{ProjectCode}_UI_Admin` when operational and administrative experiences require separation; avoid splitting merely for preference.
+7. **Create `_Integration` only when integrations are shared, numerous, separately owned, independently released, or government-governed as cross-boundary services.** Split before shared connectors become hard to unwind.
+8. **Create Reporting or Test Data solutions only when the artifacts are substantial and have an independent lifecycle.** Keep reporting dependencies explicit and keep test data synthetic unless production data use is authorized.
+
+#### Tier Selection Requires Justification
+
+Tier selection must be recorded as an ADR-style decision before implementation. The record should state the selected tier, the facts that justify it, rejected alternatives, and the evidence location for future audit review.
+
+- **Minimum** = `_Security` + `_Core` + one schema-free UI solution. Minimum is allowed only when there are no external integrations, no cross-boundary or CUI data movement, and no privileged admin UI.
+- **Standard** = Minimum + `_Automation` when automation exists but integrations are not shared, cross-boundary, or independently governed.
+- **Enterprise** = Standard + `_Integration` + multiple UI solutions as warranted. Enterprise is required when CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, or external ATO dependencies exist.
+
+This prevents teams from choosing a smaller tier to dodge governance. Governed defaults remain the baseline; projects may omit optional layers only with documented justification.
+
+#### Multiple UI Solutions
+
+When a project has distinct operational and administrative front-end applications, both live in the UI layer as separate schema-free solutions:
 
 ```
-_Security → _Core → _Config → _Automation → _UI
-                                           → _Admin_UI
+_Security → _Core → Config Gate → optional _Automation → _UI_Operations
+                                                       → _UI_Admin
 ```
 
-Both UI solutions share the same `_Core` schema, `_Automation` flows, and `_Config` environment variables. Access control between the two apps is enforced in `_Security` — the admin role grants write access to privileged tables; the standard role does not. Both deploy in the UI phase of the pipeline. This is the appropriate pattern when the admin and user experiences are distinct enough to warrant separate canvas apps or model-driven app configurations but are not separate enough to justify independent `_Core` schemas.
+Both UI solutions share the same `_Core` schema and any optional `_Automation` / `_Integration` dependencies. Access control between the two apps is enforced in `_Security` — the admin role grants write access to privileged tables; the operational role does not. Both deploy in the UI phase of the pipeline. This is the appropriate pattern when the operational and admin experiences have distinct privileges, review gates, release cadence, or blast radius but do not justify independent `_Core` schemas.
 
-**When to split `_UI` into multiple solutions:**
+**When to split `_UI` into `{ProjectCode}_UI_Operations` and `{ProjectCode}_UI_Admin`:**
 
-| Consideration | One `_UI` solution | Separate `_UI` solutions |
+| Consideration | One `_UI` solution | Separate UI solutions |
 |---|---|---|
 | Release cadence | Both apps always deploy together | Apps have independent release schedules |
 | Team ownership | Same team maintains both apps | Different teams own each app |
 | Deployment targets | Always deployed to same environments | One app may not deploy to all environments |
+| Persona boundary | Same privilege model and review path | Operations and admin capabilities need separation of duties |
 | Blast radius tolerance | Acceptable to touch both per release | Need to patch one without touching the other |
 
-The default is **one `_UI` solution**. Split only when one or more of the above "Separate" conditions is true — not as a matter of preference or logical organization.
+The default is **one `_UI` solution**. Split only when one or more of the above "Separate" conditions is true — not as a matter of preference or logical organization. When split, the user-facing operational app is named `{ProjectCode}_UI_Operations`; the admin app is named `{ProjectCode}_UI_Admin`.
 
-**Naming pattern for split UI solutions:**
+#### Optional Azure Integration Layer
 
-```
-{ProjectCode}_UI          → primary / user-facing application
-{ProjectCode}_UI_Admin    → admin or elevated-access application
-```
+When flows call Azure services, the Power Platform-side artifacts (custom connectors, connection references, flows) usually stay in `_Automation`. Add `_Integration` only when multiple external systems, shared connection references, a dedicated integration team, independently governed service connections, cross-boundary data exchange, CUI movement, or external ATO dependency warrants a separate lifecycle. Starting without `_Integration` is safe for simple projects, but refactor cost rises once connectors and connection references become shared platform assets.
 
-Both solutions deploy as sequential imports in the UI phase. The `deploy-ui.yml` pipeline accepts a `uiSolutionSuffix` parameter (`_Admin`, `_User`, or empty) so the same pipeline template drives all UI deployments without duplication.
+#### Multiple Applications Sharing a Data Model
 
-**Azure integration** — When flows call Azure services, the Power Platform-side artifacts (custom connectors, connection references, flows) stay in `_Automation`. If the integration is large, shared across solutions, or has its own release cadence, a `_Integration` layer can be inserted between `_Config` and `_Automation`. See [Appendix A](#appendix-a-azure-integration-layer-guidance).
-
-**Multiple applications sharing a data model** — When two or more applications in the same environment share tables, the schema is centralized in a shared `_Core` owned by a platform team. Each application then provides its own `_Automation` and `_UI` layers that declare a solution dependency on the shared `_Core`. Per-application `_Config` values remain independent.
+When two or more applications in the same environment share tables, the schema is centralized in a shared `_Core` owned by a platform team. Each application then provides its own optional `_Automation`, `_Integration`, and UI layers that declare a solution dependency on the shared `_Core`. Per-application configuration values remain independent and governed by that application's Config Gate evidence.
 
 The test for any structural adaptation: does the new solution have a distinct ownership boundary, a distinct deployment dependency, or a distinct release cadence? If any of those are true, it warrants its own named solution in the appropriate layer position.
 
@@ -443,13 +486,13 @@ LP-ALM eliminates this window by architectural constraint. Security roles must e
 
 The consequence: in every LP-ALM environment, at every point in time, every data structure that exists has a corresponding access control structure that also exists. There is no moment where schema exists without governance.
 
-### 3.2 The Config Exclusion Pattern: Eliminating Secrets Exposure
+### 3.2 The Config Gate Pattern: Eliminating Secrets Exposure
 
-The `_Config` exclusion from source control addresses a specific, documented class of risk: secrets embedded in repository artifacts.
+The configuration value exclusion from source control addresses a specific, documented class of risk: secrets embedded in repository artifacts.
 
 When environment variable values are committed to source control — either in solution files or as pipeline variable substitutions — those values become persistent, potentially searchable, and subject to repository access controls that are typically broader than the environment access controls. A developer with read access to the repository gains read access to production environment URLs, API keys, and tenant identifiers.
 
-The LP-ALM config exclusion creates a zero-secrets-in-repo guarantee: the repository contains no value that is specific to any environment. A complete clone of the repository cannot yield a working connection to any environment. Credentials remain in the environments and in the secrets management system (Azure Key Vault), not in version control.
+The LP-ALM Config Gate creates a zero-secrets-in-repo guarantee: the repository contains no value that is specific to any environment. A complete clone of the repository cannot yield a working connection to any environment. Credentials remain in the target environments and approved secrets management system (Azure Key Vault), not in version control. The optional unmanaged `_Config` pattern preserves this guarantee because it is never committed, never published as an artifact, and used only with written justification.
 
 **This is not about paranoia — it is about attack surface reduction.** A repository is typically accessible to all developers. An environment is accessible only to those explicitly provisioned.
 
@@ -470,9 +513,9 @@ The combination of managed solutions and the layer architecture means each layer
 | AC-2 | Account Management | Service principal application users are provisioned and documented per environment. Personal credential binding is prohibited in Test and above. Connection references are bound to managed service accounts where agency policy permits; when service accounts are prohibited by IAM policy (common in DoD), a formal account provisioning request must document the non-personal credential approved for each environment tier. |
 | AC-3 | Access Enforcement | Security roles deploy before schema (`_Security` first). Every table and column has a corresponding access control structure at all times. Managed solutions prevent unauthorized modification. |
 | AC-6 | Least Privilege | Security roles are designed per persona with minimum required privileges. Pipeline service principal uses only the built-in System Administrator role (required for `prvWriteRole`) — no over-privileging beyond platform requirement. |
-| CM-2 | Baseline Configuration | Source control contains the authoritative baseline for all four committed layers (`_Security`, `_Core`, `_Automation`, `_UI`). `_Config` is documented in configuration management records outside source control. |
-| CM-3 | Configuration Change Control | All changes to committed layers go through pull request review and pipeline validation before deployment. No direct environment modification in Test/Prod is permitted (managed solution enforcement). |
-| CM-6 | Configuration Settings | Environment-specific values are managed through `_Config` (manual, controlled) and Azure Key Vault (for pipeline secrets). No configuration values are hardcoded in pipeline definitions. |
+| CM-2 | Baseline Configuration | Source control contains the authoritative baseline for committed solution layers (`_Security`, `_Core`, and any optional `_Integration`, `_Automation`, or UI solutions). Configuration values are deployment-controlled artifacts evidenced by the metadata-only environment configuration register, not by committed value files. |
+| CM-3 | Configuration Change Control | All changes to committed layers go through pull request review and pipeline validation before deployment. Configuration value changes are controlled through approved secret stores, deployment approvals, environment register updates, and Azure DevOps / Key Vault audit logs. No direct unmanaged customization in Test/Prod is permitted (managed solution enforcement). |
+| CM-6 | Configuration Settings | Environment-specific values are supplied through secret-backed deployment inputs / Key Vault and an ephemeral settings file when required. The environment configuration register records metadata and review evidence. An unmanaged `_Config` solution is optional only when justified as a high-control evidence artifact; no configuration values are hardcoded in pipeline definitions or committed to source. |
 | SA-3 | System Development Life Cycle | LP-ALM defines a structured SDLC for Power Platform: development in unmanaged Dev, validation in managed Test, promotion to managed Prod with independent layer sequencing and rollback capability. |
 | SI-2 | Flaw Remediation | Layer isolation enables targeted remediation. A security role flaw requires only `_Security` reimport. A flow defect requires only `_Automation` reimport. Neither triggers a full solution deployment. |
 
@@ -504,7 +547,7 @@ https://yourorg.crm9.dynamics.com
 https://yourorg.crm.microsoftdynamics.us
 ```
 
-All PAC CLI commands must use the GCC High URL. All connection references must point to `.crm.microsoftdynamics.us` endpoints. Connection reference values committed to source control (definitions only) should not embed URLs — environment-specific URLs belong in `_Config`.
+All PAC CLI commands must use the GCC High URL. All connection references must point to `.crm.microsoftdynamics.us` endpoints. Connection reference definitions committed to source control should not embed environment-specific URLs — those values are deployment-controlled through the Config Gate or a justified optional `_Config`.
 
 #### Connection References and Service Account Constraints
 
@@ -610,9 +653,11 @@ Format:   {ProjectCode}_{Layer}
 Examples:
   SYSTRK_Security
   SYSTRK_Core
-  SYSTRK_Config
   SYSTRK_Automation
   SYSTRK_UI
+  SYSTRK_UI_Operations
+  SYSTRK_UI_Admin
+  SYSTRK_Config   (optional unmanaged evidence pattern only)
 ```
 
 - `ProjectCode` is uppercase, 3–8 characters, unique per project
@@ -622,7 +667,7 @@ Examples:
 **Solution unique names (for API/programmatic use):**
 ```
 Format:   {projectcode}_{layer}  (lowercase)
-Examples: systrk_security, systrk_core, systrk_config, systrk_automation, systrk_ui
+Examples: systrk_security, systrk_core, systrk_automation, systrk_ui, systrk_ui_operations, systrk_ui_admin, systrk_config (optional unmanaged evidence pattern only)
 ```
 
 ### 4.4 Legacy Prefix Handling
@@ -681,9 +726,10 @@ Prod: https://agencyname.crm.microsoftdynamics.us
 ├── pipelines/
 │   ├── deploy-security.yml     # Deploy _Security layer
 │   ├── deploy-core.yml         # Deploy _Core layer
-│   ├── deploy-automation.yml   # Deploy _Automation layer
-│   ├── deploy-ui.yml           # Deploy _UI layer
-│   ├── deploy-all.yml          # Sequential full deployment (Security→Core→Automation→UI)
+│   ├── deploy-integration.yml  # Optional: deploy _Integration layer
+│   ├── deploy-automation.yml   # Optional: deploy _Automation layer
+│   ├── deploy-ui.yml           # Deploy _UI / _UI_Operations / _UI_Admin layer
+│   ├── deploy-all.yml          # Sequential full deployment with Config Gate
 │   └── pr-validation.yml       # Pull request build validation
 └── solutions/
     ├── {ProjectCode}_Security/   # Unpacked _Security solution
@@ -697,12 +743,14 @@ Prod: https://agencyname.crm.microsoftdynamics.us
     │       ├── Entities/
     │       ├── OptionSets/
     │       └── Other/
-    ├── {ProjectCode}_Automation/ # Unpacked _Automation solution
+    ├── {ProjectCode}_Integration/ # Optional unpacked _Integration solution
+    │   └── src/
+    ├── {ProjectCode}_Automation/ # Optional unpacked _Automation solution
     │   └── src/
     │       ├── Workflows/
     │       ├── ConnectionReferences/
     │       └── EnvironmentVariableDefinitions/
-    └── {ProjectCode}_UI/         # Unpacked _UI solution
+    └── {ProjectCode}_UI/         # Unpacked _UI solution (or _UI_Operations / _UI_Admin split)
         └── src/
             ├── AppModules/
             ├── CanvasApps/
@@ -710,7 +758,7 @@ Prod: https://agencyname.crm.microsoftdynamics.us
             └── Dashboards/
 ```
 
-> **`_Config` has no folder in the repository.** It does not exist in source control at any point.
+> **Configuration values and `_Config` artifacts have no folder in the repository.** A dedicated unmanaged `_Config` solution, if justified, is never committed or published as an artifact.
 
 ### 5.2 What Is Committed and What Is Not
 
@@ -720,8 +768,9 @@ Prod: https://agencyname.crm.microsoftdynamics.us
 |---|---|
 | Unpacked `_Security` solution | `solutions/{ProjectCode}_Security/` |
 | Unpacked `_Core` solution | `solutions/{ProjectCode}_Core/` |
-| Unpacked `_Automation` solution | `solutions/{ProjectCode}_Automation/` |
-| Unpacked `_UI` solution | `solutions/{ProjectCode}_UI/` |
+| Unpacked `_Integration` solution (optional) | `solutions/{ProjectCode}_Integration/` |
+| Unpacked `_Automation` solution (when automation exists) | `solutions/{ProjectCode}_Automation/` |
+| Unpacked `_UI` / `_UI_Operations` / `_UI_Admin` solution | `solutions/{ProjectCode}_UI*/` |
 | Pipeline YAML definitions | `pipelines/` |
 | AI context documentation | `.ai/` |
 | Methodology and role docs | `docs/` |
@@ -731,7 +780,7 @@ Prod: https://agencyname.crm.microsoftdynamics.us
 
 | Artifact | Reason |
 |---|---|
-| `_Config` solution (packed or unpacked) | Contains environment-specific values |
+| `_Config` solution (packed or unpacked) | Optional unmanaged evidence artifact containing environment-specific values; never source |
 | `*.zip` solution export files | Binary artifacts; solution source is the unpacked form |
 | Connection reference values | Environment-specific credential bindings |
 | Environment variable values | Environment-specific configuration |
@@ -901,7 +950,7 @@ pac solution pack --zipfile "./sync/SYSTRK_UI.zip"       --folder "./solutions/S
 # 3. Import in layer order
 pac solution import --path "./sync/SYSTRK_Security.zip"   --force-overwrite true --publish-changes false
 pac solution import --path "./sync/SYSTRK_Core.zip"       --force-overwrite true --publish-changes false
-# Apply _Config manually for your dev environment here (see Section 6.3)
+# Populate required configuration values for your dev environment here (see Section 6.3)
 pac solution import --path "./sync/SYSTRK_Automation.zip" --force-overwrite true --publish-changes false
 pac solution import --path "./sync/SYSTRK_UI.zip"         --force-overwrite true --publish-changes true
 ```
@@ -944,16 +993,16 @@ PAC CLI unpacked solutions produce XML files. Git merge conflicts in solution XM
 
 **Canvas apps are the hardest case.** Canvas app source files (produced by `pac canvas unpack`) are complex JSON that does not merge cleanly. For canvas apps specifically, assign a single owner for each app. If two developers must both work on the same canvas app, they should do so serially, not in parallel.
 
-### 5.6.8 `_Config` in Developer Environments
+### 5.6.8 Configuration Values in Developer Environments
 
-Each individual dev environment needs `_Config` applied once — either on initial setup or when environment variable definitions change. For teams with many individual dev environments, the manual `_Config` protocol (Section 6.3) can become burdensome.
+Each individual dev environment needs required configuration values populated once — either on initial setup or when environment variable definitions change. For teams with many individual dev environments, the default Config Gate protocol can be supported by a lightweight developer reference process.
 
 **Lightweight protocol for individual dev environments:**
 
-- Document the set of environment variable values needed for a functional individual dev environment in a **Config Reference Sheet** stored outside source control (shared encrypted document, team wiki, or Azure Key Vault reference). This is not the `_Config` solution file — it is the human-readable values list that a developer uses to configure their environment manually.
-- When a developer sets up a new individual dev environment, they apply `_Config` once using the Config Reference Sheet.
-- When environment variable definitions change (`_Core` change), the Config Reference Sheet is updated and developers re-apply their `_Config` on next sync.
-- **Individual dev `_Config` values may differ from Test/Prod.** This is expected — individual dev environments often point to development-tier external systems, not production systems. The Config Reference Sheet should document which values are environment-tier-specific and what the dev-tier values are.
+- Document the set of environment variable values needed for a functional individual dev environment in a **Config Reference Sheet** stored outside source control (shared encrypted document, team wiki, or Azure Key Vault reference). This is not a committed solution file — it is the human-readable values list that a developer uses to configure their environment manually.
+- When a developer sets up a new individual dev environment, they populate required values using the Config Reference Sheet or the project-approved secret-backed process.
+- When environment variable definitions change (`_Core` change), the Config Reference Sheet and environment configuration register are updated and developers refresh their values on next sync.
+- **Individual dev configuration values may differ from Test/Prod.** This is expected — individual dev environments often point to development-tier external systems, not production systems. The Config Reference Sheet should document which values are environment-tier-specific and what the dev-tier values are.
 
 ### 5.6.9 Connection Reference Binding in Developer Environments
 
@@ -1122,32 +1171,25 @@ Patch: Bug fixes and non-breaking updates
 Build: Pipeline build number (auto-incremented by ADO, injected at pipeline time)
 ```
 
-### 6.3 Handling the `_Config` Layer
+### 6.3 Handling Configuration Values
 
-`_Config` is exported only — never committed, never pipeline-imported.
+LP-ALM's default is the Config Gate, not a mandatory `_Config` solution. Environment variable definitions are committed in `_Core`; current values and connection bindings are supplied at deploy time from approved secret-backed sources and documented in the metadata-only environment configuration register.
 
 ```bash
-# Export _Config from reference environment (Dev)
-pac solution export \
-  --name "SYSTRK_Config" \
-  --path "./SYSTRK_Config_$(Get-Date -Format 'yyyyMMdd').zip" \
-  --managed false \
-  --overwrite true
-
-# DO NOT unpack to solutions/ directory
-# DO NOT commit the zip or unpacked files
-# Store securely (e.g., encrypted file share, key vault reference)
-```
-
-**Manual import to target environment:**
-```bash
+# Example only: generate settings file from approved secret-backed deployment inputs
+# The generated file must be ephemeral, masked in logs, never committed, and never published.
 pac solution import \
-  --path "./SYSTRK_Config_20260512.zip" \
+  --path "./SYSTRK_Core_managed.zip" \
+  --settings-file "$(Pipeline.Workspace)/generated-settings.json" \
   --force-overwrite true \
   --publish-changes true
+
+# Delete generated settings file immediately after import
 ```
 
-The person performing the import must have the environment-specific values already prepared. The zip file should not be stored in version control — it should be treated as a configuration artifact, not a code artifact.
+The environment configuration register records the non-secret evidence: logical name, environment, owner, required/optional status, secret classification, source variable name, approval/change reference, and last-reviewed date. It does not record raw values.
+
+**Optional unmanaged `_Config` evidence pattern:** Use a dedicated unmanaged `{ProjectCode}_Config` solution only when auditors require a solution-artifact evidence trail. It is manually applied, justified in writing, never committed, never unpacked into `solutions/`, and never imported or published by the pipeline.
 
 ### 6.4 Bulk Export Script (All Layers)
 
@@ -1213,17 +1255,18 @@ deploy-all.yml pipeline:
 Stage: Deploy_Test
   ├── Job: Deploy_Security_Test
   ├── Job: Deploy_Core_Test         (dependsOn: Deploy_Security_Test)
-  │         [_Config must be manually applied before this pipeline runs if env vars are new]
-  ├── Job: Deploy_Automation_Test   (dependsOn: Deploy_Core_Test)
-  └── Job: Deploy_UI_Test           (dependsOn: Deploy_Automation_Test)
+  ├── Job: Config_Gate_Test         (dependsOn: Deploy_Core_Test; validate values / bindings)
+  ├── Job: Deploy_Automation_Test   (dependsOn: Config_Gate_Test; only when automation exists)
+  └── Job: Deploy_UI_Test           (dependsOn: Deploy_Automation_Test or Config_Gate_Test)
 
 Stage: Manual_Approval             (environment approval gate — requires human sign-off)
 
 Stage: Deploy_Prod
   ├── Job: Deploy_Security_Prod
   ├── Job: Deploy_Core_Prod         (dependsOn: Deploy_Security_Prod)
-  ├── Job: Deploy_Automation_Prod   (dependsOn: Deploy_Core_Prod)
-  └── Job: Deploy_UI_Prod           (dependsOn: Deploy_Automation_Prod)
+  ├── Job: Config_Gate_Prod         (dependsOn: Deploy_Core_Prod; validate values / bindings)
+  ├── Job: Deploy_Automation_Prod   (dependsOn: Config_Gate_Prod; only when automation exists)
+  └── Job: Deploy_UI_Prod           (dependsOn: Deploy_Automation_Prod or Config_Gate_Prod)
 ```
 
 ### 7.3 Required Pipeline Variables and Variable Groups
@@ -1258,9 +1301,9 @@ Stage: Deploy_Prod
 | `Prod.ServiceConnectionName` | `SYSTRK-Prod-ServicePrincipal` | No |
 
 **What does NOT go in variable groups:**
-- `_Config` solution values (they are not pipeline values — they are manual environment configuration)
-- Connection reference values (bound in the environment, not passed via pipeline)
-- Environment variable current values (these are `_Config`, not pipeline variables)
+- Raw configuration values that are not needed by deployment automation
+- Connection reference credentials or bindings that must be created directly in the environment
+- Environment variable current values unless they are approved secret-backed deployment inputs for the Config Gate
 
 ### 7.4 Service Connection Setup for GCC High
 
@@ -1365,7 +1408,7 @@ steps:
         --packagetype Managed
     displayName: 'Validate Pack: UI'
 
-  # Note: _Config is never validated in pipeline
+  # Note: raw configuration values are never validated by packing source artifacts
 ```
 
 ### 7.7 ADO Pipeline as the Release Mechanism
@@ -1378,13 +1421,13 @@ Three structural reasons explain why a Dataverse release solution conflicts with
 
 | Reason | Explanation |
 |---|---|
-| `_Config` can never be a solution artifact | A release solution cannot include `_Config`. Any bundle of the other layers gives the false impression of a complete, self-contained release. |
+| Configuration values are not release-solution code | A release solution cannot include secret-backed Config Gate evidence or environment-specific values. Any bundle of the other layers gives the false impression of a complete, self-contained release. |
 | Ordering is enforced by the pipeline, not by Dataverse | A release solution imported as a single artifact cannot guarantee `_Security` deploys before schema. The pipeline `dependsOn` chain is the only reliable enforcement. |
 | Independent layer rollback is a core capability | A release solution couples all layers into one import unit. Rolling back only `_UI` requires reimporting the entire bundle. Per-layer pipelines support `_UI`-only rollback in under a minute. |
 
 The versioned release artifact in LP-ALM is the **pipeline run** — identified by the ADO build number, branch, and commit SHA. The per-layer managed solution ZIP files published as ADO pipeline artifacts at each run are the auditable, point-in-time artifact record.
 
-**When a Dataverse release solution is appropriate:** Only when there are no pipelines — for example, distributing a packaged product to customers who import manually without an ADO environment, or when deploying directly from the Power Apps maker portal (make.powerapps.com) as a one-time or ad-hoc action. In those scenarios, a release solution that wraps `_Security`, `_Core`, `_Automation`, and `_UI` as a single importable artifact is a reasonable substitute — the recipient imports one file and Dataverse resolves internal dependencies in order. Note that `_Config` is still excluded and must be applied manually after import regardless of whether a release solution is used. In any pipeline-driven deployment, a release solution adds coupling without benefit.
+**When a Dataverse release solution is appropriate:** Only when there are no pipelines — for example, distributing a packaged product to customers who import manually without an ADO environment, or when deploying directly from the Power Apps maker portal (make.powerapps.com) as a one-time or ad-hoc action. In those scenarios, a release solution that wraps `_Security`, `_Core`, selected optional `_Automation` / `_Integration`, and UI solutions as a single importable artifact is a reasonable substitute — the recipient imports one file and Dataverse resolves internal dependencies in order. Note that configuration values are still excluded and must be supplied through the Config Gate or a justified optional unmanaged `_Config` after import. In any pipeline-driven deployment, a release solution adds coupling without benefit.
 
 ### 7.8 Enterprise Multi-Application Pipeline Topology
 
@@ -1399,7 +1442,7 @@ When a project grows to multiple applications sharing a common `_Core` schema, t
 | App-specific `_Security` (app roles) | App team | App pipeline |
 | App-specific `_Automation` | App team | App pipeline |
 | App-specific `_UI` (one or more) | App team | App pipeline |
-| `_Config` (all layers) | Platform + App teams | Never in any pipeline |
+| Configuration values / optional unmanaged `_Config` evidence | Platform + App teams | Config Gate validation only; `_Config` solution never in any pipeline |
 
 **Platform pipeline flow:**
 
@@ -1418,15 +1461,15 @@ App pipeline (triggers on app team branch):
   1. Download Platform_Core_v{pinnedVersion}.zip from ADO Artifacts
   2. Import _Core (managed) to target environment
   3. Deploy App _Security
-  4. (manual _Config gate)
-  5. Deploy App _Automation
-  6. Deploy App _UI  (or _UI_User then _UI_Admin if split)
+  4. Config Gate validation
+  5. Deploy App _Automation (if present)
+  6. Deploy App _UI  (or _UI_Operations then _UI_Admin if split)
 ```
 
 App A can pin to `Platform_Core_v1.3.0` while App B independently adopts `Platform_Core_v1.5.0`. Neither app is blocked by the other's release cadence, and no app team can introduce breaking schema changes into the shared `_Core` — only the platform team can publish a new version of it.
 
 **Rules that carry forward unchanged:**
-- `_Config` is never part of any pipeline step — platform or application
+- `_Config` solution artifacts are never part of any pipeline step — platform or application; pipelines may only perform Config Gate validation with secret-backed inputs
 - `_Security` always deploys before `_Core` in both the platform pipeline and every app pipeline
 - Upper environments receive managed solutions only — the pinned platform artifact must be the managed solution ZIP
 - GCC High deployments require `--cloud UsGovHigh` in all `pac auth create` commands in both pipelines
@@ -1607,12 +1650,12 @@ See Section 5.6 for the full multi-developer workflow, export serialization prot
 |---|---|---|---|---|
 | `_Security` | Unmanaged, manual or PAC | Managed, pipeline | Managed, pipeline | Managed, pipeline |
 | `_Core` | Unmanaged, manual or PAC | Managed, pipeline | Managed, pipeline | Managed, pipeline |
-| `_Config` | Unmanaged, **manual** | Unmanaged, **manual** | Unmanaged, **manual** | Unmanaged, **manual** |
+| Config Gate / optional unmanaged `_Config` | Deployment-controlled values; optional manual artifact only if justified | Deployment-controlled values; optional manual artifact only if justified | Deployment-controlled values; optional manual artifact only if justified | Deployment-controlled values; optional manual artifact only if justified |
 | `_Automation` | Unmanaged, manual or PAC | Managed, pipeline | Managed, pipeline | Managed, pipeline |
 | `_UI` | Unmanaged, manual or PAC | Managed, pipeline | Managed, pipeline | Managed, pipeline |
 
 **Key observations:**
-- `_Config` is always unmanaged and always manual — in every environment without exception
+- Configuration values are never committed; an unmanaged `_Config` artifact is optional and manual only when justified
 - Pipeline automation applies only to Test/Prod (and SIT/UAT in extended topology)
 - Dev environments receive unmanaged solutions so developers can iterate without pipeline overhead
 
@@ -1636,7 +1679,7 @@ GCC High environments are physically isolated in Azure Government regions (USGov
 | Can developers make ad-hoc changes? | Yes | No (managed lock) | No (managed lock) | No (managed lock) |
 | Changes tracked in pipeline? | No (Dev is sandbox) | Yes | Yes | Yes |
 | Rollback mechanism | Re-import previous version | Re-import managed solution from pipeline artifact | Same | Same |
-| `_Config` managed? | Never | Never | Never | Never |
+| `_Config` managed? | Never; optional unmanaged evidence only | Never; optional unmanaged evidence only | Never; optional unmanaged evidence only | Never; optional unmanaged evidence only |
 
 **Never deploy a managed solution to Dev.** A managed solution in Dev prevents iteration and will block future unmanaged imports of the same solution name.
 
@@ -1653,12 +1696,13 @@ GCC High environments are physically isolated in Azure Government regions (USGov
    - Unique Name: `{projectname}` (lowercase, no spaces)
    - Prefix: `{2–5 char lowercase prefix}`
 
-2. **Create the five solution shells** in Dev (empty, linked to publisher)
+2. **Create the required solution shells** in Dev (empty, linked to publisher)
    - `{ProjectCode}_Security`
    - `{ProjectCode}_Core`
-   - `{ProjectCode}_Config`
-   - `{ProjectCode}_Automation`
-   - `{ProjectCode}_UI`
+   - `{ProjectCode}_Automation` (only when automation assets exist)
+   - `{ProjectCode}_Integration` (only when integration criteria are met)
+   - `{ProjectCode}_UI` or `{ProjectCode}_UI_Operations` / `{ProjectCode}_UI_Admin`
+   - `{ProjectCode}_Config` (optional unmanaged evidence pattern only when justified)
 
 3. **Initialize the repository**
    - Clone or fork the LP-ALM reference repository
@@ -1691,27 +1735,28 @@ GCC High environments are physically isolated in Azure Government regions (USGov
    - Build views and forms
    - Export, unpack, commit
 
-3. Configure `_Config` for each environment:
-   - Set environment variable values manually in each environment
-   - **Do not commit anything**
+3. Configure the Config Gate for each environment:
+   - Set or supply environment variable values and connection bindings through approved secret-backed processes
+   - Update the metadata-only environment configuration register
+   - **Do not commit raw values or `_Config` artifacts**
 
-4. Build `_Automation`:
+4. Build `_Automation` if automation assets exist:
    - Create flows in Dev, added to the `_Automation` solution
    - Configure connection references using service accounts
    - Export, unpack, commit
 
-5. Build `_UI`:
-   - Create apps, site maps, dashboards in Dev, added to `_UI` solution
+5. Build `_UI` / `_UI_Operations` / `_UI_Admin`:
+   - Create apps, site maps, dashboards in Dev, added to the selected UI solution(s)
    - Add no new columns — all columns must already exist in `_Core`
    - Export, unpack, commit
 
 6. Run the first pipeline to Test:
-   - `_Security` → `_Core` → *(verify `_Config` manually applied)* → `_Automation` → `_UI`
+   - `_Security` → `_Core` → Config Gate → optional `_Automation` → `_UI` / `_UI_Operations` / `_UI_Admin`
 
 #### Phase 3: Steady-State Development
 
 - All changes go through the export → unpack → PR → pipeline cycle
-- `_Config` changes are documented in the environment configuration register (not source control)
+- Configuration value changes are documented in the environment configuration register (not source control)
 - Version numbers are bumped per the semantic versioning convention
 - PRs require at least one reviewer before merge to `test` or `main`
 
@@ -1722,7 +1767,7 @@ GCC High environments are physically isolated in Azure Government regions (USGov
 | Adding a column in `_UI` | Schema contamination; `_UI` managed imports fail in upper environments | Run solution checker before export; review `git diff` for unexpected `Entities/` content inside `_UI` solution folder |
 | Committing `_Config` | Secrets or environment-specific values in source control | `.gitignore` excludes `_Config`; add a pre-commit hook that checks for `Config` solution directories |
 | Personal credentials in connection references | Flows break when user's account is rotated or deprovisioned | Policy: only service accounts in connection references; enforce in pipeline connection validation step |
-| Deploying `_Automation` before `_Config` | Flows fail on import or activation due to missing env var values | Pipeline gate: document manual `_Config` step and add a pre-stage gate confirmation |
+| Deploying `_Automation` before Config Gate validation | Flows fail on import or activation due to missing env var values | Pipeline gate: validate required values and connection bindings before automation import or activation |
 | Wrong publisher prefix | Schema naming inconsistency; solution check failures | Set publisher once at project start; document in `.ai/conventions.md`; do not change |
 | App registration in wrong tenant (GCC High) | PAC CLI auth fails; pipeline cannot connect to GCC High environment | Use `portal.azure.us` for GCC High app registrations; verify `--cloud UsGovHigh` flag in all PAC auth commands |
 | Deploying managed solution to Dev | Blocks future unmanaged imports of the same solution | Dev always gets unmanaged; enforced by pipeline parameter that maps environment to package type |
@@ -1733,9 +1778,9 @@ GCC High environments are physically isolated in Azure Government regions (USGov
 
 - [ ] `_Security` layer exported, unpacked, and committed
 - [ ] `_Core` layer exported, unpacked, and committed
-- [ ] `_Automation` layer exported, unpacked, and committed
-- [ ] `_UI` layer exported, unpacked, and committed
-- [ ] `_Config` manually applied to target environment (confirmed — NOT committed)
+- [ ] `_Automation` layer exported, unpacked, and committed if automation assets exist
+- [ ] `_UI` / `_UI_Operations` / `_UI_Admin` layer exported, unpacked, and committed as selected
+- [ ] Config Gate values and connection bindings prepared for target environment (confirmed — NOT committed); optional unmanaged `_Config` justified if used
 - [ ] Service principal application user exists in target environment
 - [ ] System Administrator role assigned to service principal in target environment
 - [ ] Azure DevOps variable groups created and populated
@@ -1758,11 +1803,11 @@ Export the monolithic solution and unpack it. Catalog all components by layer:
 - Flows, connection references → `_Automation`
 - Apps, site maps, dashboards → `_UI`
 - Environment variable definitions → `_Core`
-- Environment variable values → `_Config`
+- Environment variable values → Config Gate values (optional unmanaged `_Config` only with justification)
 
-**Step 2: Create the five solution shells**
+**Step 2: Create the required solution shells**
 
-Create empty solutions for each layer in the Dev environment, linked to the same publisher as the monolithic solution.
+Create empty solutions for the mandatory layers and any justified optional layers in the Dev environment, linked to the same publisher as the monolithic solution.
 
 **Step 3: Move components — Security first**
 
@@ -1783,7 +1828,7 @@ Add all flows and connection references to `_Automation`. Remove from monolith.
 
 Add all model-driven apps, canvas apps, site maps, and dashboards to `_UI`. Remove from monolith.
 
-**Step 7: Identify `_Config` values**
+**Step 7: Identify configuration values**
 
 Identify all environment variable current values and document them outside source control in the environment configuration register.
 
@@ -1797,7 +1842,7 @@ The monolithic solution must be deleted from Test and Prod before the LP-ALM lay
 
 1. Export all data (backup)
 2. Remove monolithic managed solution from Test/Prod (deletion propagates)
-3. Deploy `_Security` → `_Core` → *(manual `_Config`)* → `_Automation` → `_UI`
+3. Deploy `_Security` → `_Core` → Config Gate → optional `_Automation` → selected UI solution(s)
 4. Validate and smoke test all functionality
 5. Document go-live in change management record
 
@@ -1823,7 +1868,7 @@ Key executive talking points:
 
 #### To Technical Teams
 
-> "LP-ALM is a five-layer decomposition pattern for Power Platform solutions. Security roles deploy first — before schema — as a structural control. Config is excluded from source control by design. All upper-environment deployments are managed solutions. Each layer has its own pipeline job, its own source control path, and its own rollback unit. If you break a flow, you redeploy `_Automation`. If you break a table, you redeploy `_Core`. You never redeploy the whole stack for a one-component change."
+> "LP-ALM is a governed decomposition pattern for Power Platform solutions built around mandatory invariants and optional solution layers. Security roles deploy first — before schema — as a structural control. Configuration values are excluded from source control by design and supplied through the Config Gate. All upper-environment deployments are managed solutions. Each selected layer has its own pipeline job, source control path, and rollback unit. If you break a flow, you redeploy `_Automation`. If you break a table, you redeploy `_Core`. You never redeploy the whole stack for a one-component change."
 
 Technical talking points:
 - Pipeline architecture (per-layer jobs, ADO variable groups, dependency gates)
@@ -1834,7 +1879,7 @@ Technical talking points:
 
 #### To Security Officers
 
-> "LP-ALM implements a security-first deployment model aligned with NIST 800-53 AC-2, AC-3, CM-2, CM-3, and SA-3. Security roles are the first deployment action in every environment — no data structure can exist without a corresponding access control structure. Environment-specific configuration values are excluded from source control, eliminating a class of secrets-exposure risk. All production changes go through a pipeline with mandatory PR review. The architecture supports GCC High FedRAMP requirements including service principal-only authentication and sovereign cloud endpoint enforcement."
+> "LP-ALM implements a security-first deployment model aligned with NIST 800-53 AC-2, AC-3, CM-2, CM-3, CM-6, and SA-3. Security roles are the first deployment action in every environment — no data structure can exist without a corresponding access control structure. Environment-specific configuration values are excluded from source control, controlled through approved secret-backed deployment mechanisms, and evidenced by a metadata-only environment configuration register plus approval and audit logs. All production changes go through a pipeline with mandatory PR review. The architecture supports GCC High FedRAMP requirements including service principal-only authentication and sovereign cloud endpoint enforcement."
 
 Security talking points:
 - NIST control mapping (see Section 3.4)
@@ -1851,7 +1896,7 @@ LP-ALM extends Microsoft's guidance in three meaningful ways:
 
 1. **Security-first deployment order is a structural control, not a convention.** Microsoft's documentation does not prescribe deployment sequence for security roles. LP-ALM makes the sequence non-negotiable and expresses it as a compliance control with NIST mapping.
 
-2. **Config exclusion is an explicit protocol, not a default.** Microsoft's ALM documentation includes environment variables as a standard solution component. LP-ALM explicitly excludes `_Config` from source control and pipelines, creating a zero-secrets-in-repo architecture not described in default guidance.
+2. **Config exclusion is an explicit protocol, not a default.** Microsoft's ALM documentation includes environment variables as a standard solution component. LP-ALM explicitly excludes configuration values from source control, uses the Config Gate and environment configuration register as the governed default, and allows unmanaged `_Config` only as a justified high-control evidence pattern.
 
 3. **GCC High sovereign cloud specificity.** Microsoft's general Power Platform ALM guidance is written for commercial environments. LP-ALM explicitly addresses `.crm.microsoftdynamics.us` endpoints, Azure Government app registrations, and service principal requirements specific to GCC High.
 
@@ -1861,7 +1906,7 @@ LP-ALM is compatible with Microsoft's Power Platform CoE Starter Kit and does no
 
 LP-ALM is not appropriate for:
 - **Single-environment solutions** — no deployment pipeline means the layer architecture provides no deployment benefit
-- **Prototype and proof-of-concept work** — five solutions, pipelines, and service principals is excessive for short-lived work
+- **Prototype and proof-of-concept work** — governed layers, pipelines, and service principals are excessive for short-lived work
 - **Maker projects** — low-code makers without ALM tooling should use the simplest solution structure that works
 - **Single-person projects without change control requirements** — per-layer pipeline overhead is unnecessary
 - **Solutions that will never go to a regulated environment** — compliance posture features add complexity with no return
@@ -1873,7 +1918,7 @@ LP-ALM is not appropriate for:
 | Deliverable | Description | Primary Owner |
 |---|---|---|
 | LP-ALM Methodology Document | This document, customized with project code, prefix, and environment details | Architect |
-| Publisher and Solution Setup | Five solutions created in Dev, publisher configured, prefix documented | Architect |
+| Publisher and Solution Setup | Mandatory and justified optional solutions created in Dev, publisher configured, prefix documented | Architect |
 | Source Control Repository | Initialized repo with `.gitignore`, `.ai/` structure, `pipelines/`, `docs/` | Architect |
 | Pipeline YAML Files | All six pipeline files (5 deploy + 1 PR validation) | Architect |
 | Security Role Matrix | Table of roles, tables, and privilege levels per persona | Security Lead |
@@ -1881,7 +1926,7 @@ LP-ALM is not appropriate for:
 | ADO Variable Groups | Created and documented; secrets populated by customer | Architect + Customer |
 | Service Principal Setup Guide | App registration steps, application user setup, role assignment | Architect |
 | Onboarding Runbook | Steps for a new developer to get productive in the project | Architect |
-| Config Management Protocol | Written procedure for `_Config` handling (document in deliverable set, not source control) | Architect |
+| Config Management Protocol | Written procedure for Config Gate handling and optional unmanaged `_Config` justification (document in deliverable set, not source control) | Architect |
 
 **Estimated engagement scope:** 8–16 hours for greenfield setup; 24–40 hours for monolithic migration depending on solution complexity.
 
@@ -1969,7 +2014,7 @@ LP-ALM assumes Landing Zones prerequisites are met. Well-Architected provides th
 
 ## Appendix A: Azure Integration Layer Guidance
 
-LP-ALM's five layers govern Power Platform solution decomposition. When a workload connects to Azure services — Azure Functions, Logic Apps, Service Bus, API Management, Event Grid, or others — the resources span two platforms with different lifecycle models. This appendix defines where each piece belongs and when to introduce an optional `_Integration` layer.
+LP-ALM's mandatory invariants and optional layers govern Power Platform solution decomposition. When a workload connects to Azure services — Azure Functions, Logic Apps, Service Bus, API Management, Event Grid, or others — the resources span two platforms with different lifecycle models. This appendix defines where each piece belongs and when to introduce an optional `_Integration` layer.
 
 ---
 
@@ -1983,7 +2028,7 @@ Not everything in an Azure-connected workload belongs inside a Power Platform so
 | Custom connector definition | `_Automation` (or `_Integration` — see A.3) | PAC CLI, same as other solution artifacts |
 | Connection reference pointing to the custom connector | `_Automation` (or `_Integration`) | PAC CLI |
 | Power Automate flow that calls the Azure API | `_Automation` | PAC CLI |
-| Endpoint URL, function key, API key | `_Config` as an environment variable | Manual — never committed, never in a pipeline |
+| Endpoint URL, function key, API key | Config Gate value / environment variable current value | Secret-backed deployment input or justified optional unmanaged `_Config`; never committed |
 | Managed Identity binding | Azure portal / Bicep | Azure-side; no solution artifact |
 
 The Power Platform side of the integration (connector, connection reference, flows) follows the same layer rules as any other component. The Azure side is infrastructure managed independently.
@@ -1992,19 +2037,19 @@ The Power Platform side of the integration (connector, connection reference, flo
 
 ### A.2 Credentials and Endpoint Configuration
 
-The connection between Power Platform and Azure surfaces in `_Config` — not in any committed layer.
+The connection between Power Platform and Azure surfaces as deployment-controlled configuration data — not in any committed layer.
 
-- **Endpoint URL** (e.g., `https://{functionapp}.azurewebsites.net/api/{function}`) → environment variable in `_Config`
-- **Function key or API key** → environment variable in `_Config`; value set manually per environment; never stored in source control
+- **Endpoint URL** (e.g., `https://{functionapp}.azurewebsites.net/api/{function}`) → environment variable current value supplied through the Config Gate
+- **Function key or API key** → Key Vault / secret-backed environment variable current value; never stored in source control
 - **Managed Identity** → preferred over keys; no credential stored anywhere; requires the Power Platform environment's system-assigned identity to be granted a role on the Azure resource
 
-When a flow or connector reads the endpoint from an environment variable, only the variable *name* is committed to source. The value is applied as part of the `_Config` manual step in each environment.
+When a flow or connector reads the endpoint from an environment variable, only the variable *name* and definition are committed to source. The value is supplied through the Config Gate and evidenced by the environment configuration register; optional unmanaged `_Config` is used only with documented justification.
 
 ---
 
 ### A.3 When to Add a `_Integration` Layer
 
-For simple integrations — a single custom connector and a handful of flows — `_Automation` is sufficient. Introduce a dedicated `_Integration` layer when any of the following conditions apply:
+For simple integrations — a single custom connector and a handful of flows — `_Automation` is sufficient. Introduce a dedicated `_Integration` layer when multiple external systems, shared connection references, a dedicated integration team, or any of the following conditions apply:
 
 | Condition | Reason to Separate |
 |---|---|
@@ -2012,11 +2057,13 @@ For simple integrations — a single custom connector and a handful of flows —
 | The Azure-facing components are owned by a different team | Team boundaries should align with solution boundaries |
 | Azure infrastructure and Power Platform automation have different deployment gates | Splitting layers allows independent promotion through environments |
 | The connector or bridge is reused across more than one project | A shared artifact should not be bundled inside a project-specific `_Automation` |
+| CUI moves across a boundary or the exchange crosses authorization boundaries | Government evidence, approval, and monitoring responsibilities differ from app automation |
+| An external ATO dependency exists | Integration release and risk acceptance may need separate tracking |
 
 When `_Integration` is added, the full layer order becomes:
 
 ```
-_Security → _Core → _Config → _Integration → _Automation → _UI
+_Security → _Core → Config Gate → _Integration → _Automation → _UI
 ```
 
 `_Integration` must be fully deployed before `_Automation` because flows in `_Automation` may depend on connection references defined in `_Integration`. The deployment order rule — each layer deploys after its dependencies — still applies.
@@ -2057,7 +2104,7 @@ jobs:
   - job: DeploySecurity
   - job: DeployCore
     dependsOn: DeploySecurity
-  - job: ConfigGate          # ManualValidation — apply _Config before proceeding
+  - job: ConfigGate          # Validate deployment-controlled values / bindings before proceeding
     dependsOn: DeployCore
   - job: DeployIntegration
     dependsOn: ConfigGate
@@ -2076,7 +2123,7 @@ The Azure infrastructure pipeline (`deploy-azure-infra.yml`) runs independently 
 | Concern | Recommendation |
 |---|---|
 | Auth between Power Platform and Azure | Managed Identity preferred; avoids any stored credential |
-| Azure Function keys / API keys | `_Config` environment variable only; rotate per environment; never in source control |
+| Azure Function keys / API keys | Key Vault / secret-backed configuration value only; rotate per environment; never in source control |
 | Custom connector API definition | May include base URL — use an environment variable reference; do not hard-code per-environment URLs in the connector definition |
 | Pipeline service principal access to Azure | Separate Azure SP with least-privilege role on the specific Azure resource; do not reuse the Power Platform pipeline SP |
 | GCC High to Azure Government | Ensure Azure resources are deployed to Azure Government (`*.usgovcloudapi.net`) to match the data boundary; commercial Azure endpoints are not authorized for GCC High workloads |
@@ -2085,12 +2132,12 @@ The Azure infrastructure pipeline (`deploy-azure-infra.yml`) runs independently 
 
 ### A.6 The Framework Extension Principle
 
-LP-ALM is intentionally extensible. When a workload grows beyond the five standard layers, the framework's answer is: **add a layer, keep the rules**. The same constraints apply to any new layer:
+LP-ALM is intentionally extensible. When a workload grows beyond the standard tier selected for the project, the framework's answer is: **add a layer, keep the rules**. The same constraints apply to any new layer:
 
 - It has a single responsibility — one layer, one concern
 - It deploys after its dependencies and before its consumers
-- It is never merged with `_Config`
-- Its deployment is automated; only `_Config` values remain manual
+- It is never merged with configuration value artifacts
+- Its deployment is automated; configuration values remain deployment-controlled through the Config Gate or justified optional unmanaged `_Config`
 - Schema (tables, columns, relationships) belongs in `_Core`, not in any integration or automation layer
 
 The `_Integration` layer is the most common extension point. Other extension points that teams have used include `_Reporting` (for Power BI dataset bindings and paginated report definitions) and `_Portal` (for Power Pages site components when the portal release cadence diverges from `_UI`). Apply the same design test to any proposed new layer: does it have a distinct deployment dependency, a distinct ownership boundary, or a distinct release cadence? If yes, it earns its own layer.

@@ -1,16 +1,14 @@
 # ============================================================
-# LP-ALM: Full Deploy Pipeline (All Layers)
+# LP-ALM: Full Deploy Pipeline (Layer Manifest Orchestration)
 # deploy-all.yml
 #
-# Deploys all four pipeline-managed layers in dependency order:
-#   _Security → _Core → _Automation → _UI
-#
-# IMPORTANT: _Config is NOT included. It must be manually
-# applied to the target environment BEFORE this pipeline runs
-# if any environment variable values are new or changed.
-#
-# Triggers on push to 'main' branch (Prod deploy).
-# Set targetEnvironment parameter to 'test' for Test deploy.
+# Security deploys first, Core follows, then a Config Gate validates
+# required runtime values and connection bindings before optional
+# Integration, optional Automation, and dependent UI solutions.
+# Example manifests:
+#   Minimum:    Security,Core,UI_Operations
+#   Standard:   Security,Core,Automation,UI_Operations
+#   Enterprise: Security,Core,Integration,Automation,UI_Operations,UI_Admin
 # ============================================================
 
 trigger:
@@ -22,8 +20,7 @@ trigger:
       - solutions/**
       - pipelines/**
 
-# Run on PR (validation only — no deploy)
-pr: none  # PR validation is handled by pr-validation.yml
+pr: none
 
 parameters:
   - name: targetEnvironment
@@ -31,23 +28,52 @@ parameters:
     type: string
     default: 'test'
     values:
+      - dev
       - test
       - prod
 
-  - name: solutionVersionMinor
-    displayName: 'Minor Version (leave 0 to use pipeline variable)'
-    type: number
-    default: 0
-
-  - name: deployLayers
-    displayName: 'Layers to deploy (comma-separated: Security,Core,Automation,UI)'
+  - name: architectureTier
+    displayName: 'Architecture Tier'
     type: string
-    default: 'Security,Core,Automation,UI'
+    default: 'Standard'
+    values:
+      - Minimum
+      - Standard
+      - Enterprise
+
+  - name: layerManifest
+    displayName: 'Explicit layer manifest (comma-separated)'
+    type: string
+    default: 'Security,Core,Automation,UI_Operations'
+
+  - name: requiredEnvironmentVariableValues
+    displayName: 'Config Gate value checks as logicalName=$(Approved.Variable);...'
+    type: string
+    default: ''
+
+  - name: requiredConnectionBindings
+    displayName: 'Config Gate binding checks as logicalName=$(Approved.ConnectionVariable);...'
+    type: string
+    default: ''
 
 variables:
   - group: SYSTRK-Common
 
-  # Load environment-specific variable group based on target
+  - ${{ if eq(parameters.targetEnvironment, 'dev') }}:
+    - group: SYSTRK-Dev
+    - name: EnvironmentUrl
+      value: $(Dev.EnvironmentUrl)
+    - name: ApplicationId
+      value: $(Dev.ApplicationId)
+    - name: TenantId
+      value: $(Dev.TenantId)
+    - name: ClientSecret
+      value: $(Dev.ClientSecret)
+    - name: SolutionPackageType
+      value: Unmanaged
+    - name: SolutionZipSuffix
+      value: unmanaged
+
   - ${{ if eq(parameters.targetEnvironment, 'test') }}:
     - group: SYSTRK-Test
     - name: EnvironmentUrl
@@ -58,6 +84,10 @@ variables:
       value: $(Test.TenantId)
     - name: ClientSecret
       value: $(Test.ClientSecret)
+    - name: SolutionPackageType
+      value: Managed
+    - name: SolutionZipSuffix
+      value: managed
 
   - ${{ if eq(parameters.targetEnvironment, 'prod') }}:
     - group: SYSTRK-Prod
@@ -69,40 +99,69 @@ variables:
       value: $(Prod.TenantId)
     - name: ClientSecret
       value: $(Prod.ClientSecret)
+    - name: SolutionPackageType
+      value: Managed
+    - name: SolutionZipSuffix
+      value: managed
 
   - name: SolutionVersion
     value: '$(SolutionVersion.Major).$(SolutionVersion.Minor).0.$(Build.BuildId)'
 
   - name: OutputPath
-    value: '$(Build.ArtifactStagingDirectory)/solutions'
+    value: '$(Build.ArtifactStagingDirectory)\solutions'
 
 pool:
   vmImage: 'windows-latest'
 
-# ============================================================
-# STAGE 1: Deploy to Test
-# ============================================================
 stages:
   - stage: Deploy_${{ parameters.targetEnvironment }}
     displayName: 'Deploy to ${{ parameters.targetEnvironment }}'
     jobs:
-
-      # ----------------------------------------------------------
-      # JOB 1: Deploy _Security layer
-      # ----------------------------------------------------------
-      - job: Deploy_Security
-        displayName: 'Deploy _Security Layer'
-        condition: contains('${{ parameters.deployLayers }}', 'Security')
+      - job: Validate_Manifest
+        displayName: 'Validate explicit layer manifest and tier'
         steps:
-          - template: steps/install-pac-cli.yml
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $layers = @('${{ parameters.layerManifest }}' -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+              $allowed = @('Security','Core','Integration','Automation','UI_Operations','UI_Admin')
+              foreach ($layer in $layers) { if ($allowed -notcontains $layer) { Write-Host "##vso[task.logissue type=error]Unknown layer in manifest: $layer"; exit 1 } }
+              foreach ($mandatory in @('Security','Core')) { if ($layers -notcontains $mandatory) { Write-Host "##vso[task.logissue type=error]Layer manifest must include $mandatory."; exit 1 } }
+              $tier='${{ parameters.architectureTier }}'
+              if ($tier -eq 'Minimum' -and ($layers -contains 'Automation' -or $layers -contains 'Integration' -or $layers -contains 'UI_Admin')) { Write-Host '##vso[task.logissue type=error]Minimum tier cannot include Automation, Integration, or Admin UI.'; exit 1 }
+              if ($tier -ne 'Enterprise' -and $layers -contains 'Integration') { Write-Host '##vso[task.logissue type=error]Integration requires the Enterprise tier.'; exit 1 }
+              Write-Host "Layer manifest accepted for $tier tier."
+            displayName: 'Validate manifest and tier alignment'
+
+      - job: Deploy_Security
+        displayName: 'Deploy Security Layer'
+        dependsOn: Validate_Manifest
+        condition: and(succeeded(), contains('${{ parameters.layerManifest }}', 'Security'))
+        steps:
+          - task: PowerPlatformToolInstaller@2
+            displayName: 'Install Power Platform Tools (PAC CLI)'
+            inputs:
+              DefaultVersion: true
 
           - script: |
               pac solution pack ^
-                --zipfile "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
-                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Security/src" ^
-                --packagetype Managed ^
+                --zipfile "$(OutputPath)\$(ProjectCode)_Security_$(SolutionZipSuffix).zip" ^
+                --folder "$(Build.SourcesDirectory)\solutions\$(ProjectCode)_Security\src" ^
+                --packagetype $(SolutionPackageType) ^
                 --solutionversion "$(SolutionVersion)"
-            displayName: 'Pack $(ProjectCode)_Security (Managed)'
+            displayName: 'Pack $(ProjectCode)_Security ($(SolutionPackageType))'
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $raw = '$(Security.SettingsJson)'.Trim()
+              if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { exit 0 }
+              try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]Security settings JSON is invalid.'; exit 1 }
+              $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+              New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+              $settingsPath = Join-Path $settingsDirectory '$(ProjectCode)_Security-settings.json'
+              Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+              Write-Host 'Runtime settings file generated in the pipeline workspace.'
+              Write-Host "##vso[task.setvariable variable=SecuritySettingsFilePath;issecret=true]$settingsPath"
+            displayName: 'Generate Security ephemeral settings file'
 
           - script: |
               pac auth create ^
@@ -116,36 +175,48 @@ stages:
             env:
               ClientSecret: $(ClientSecret)
 
-          - script: |
-              pac solution import ^
-                --path "$(OutputPath)/$(ProjectCode)_Security_managed.zip" ^
-                --activate-plugins true ^
-                --force-overwrite true ^
-                --publish-changes true ^
-                --skip-dependency-check false
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $pacArgs = @('solution','import','--path','$(OutputPath)\$(ProjectCode)_Security_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+              if (-not [string]::IsNullOrWhiteSpace('$(SecuritySettingsFilePath)') -and (Test-Path '$(SecuritySettingsFilePath)')) { $pacArgs += @('--settings-file','$(SecuritySettingsFilePath)') }
+              pac @pacArgs
             displayName: 'Import $(ProjectCode)_Security to ${{ parameters.targetEnvironment }}'
 
-      # ----------------------------------------------------------
-      # JOB 2: Deploy _Core layer (depends on Security)
-      # ----------------------------------------------------------
+          - powershell: |
+              if (-not [string]::IsNullOrWhiteSpace('$(SecuritySettingsFilePath)') -and (Test-Path '$(SecuritySettingsFilePath)')) { Remove-Item -Path '$(SecuritySettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+            displayName: 'Delete Security ephemeral settings file'
+            condition: always()
+
       - job: Deploy_Core
-        displayName: 'Deploy _Core Layer'
+        displayName: 'Deploy Core Layer'
         dependsOn: Deploy_Security
-        condition: |
-          and(
-            in(dependencies.Deploy_Security.result, 'Succeeded', 'Skipped'),
-            contains('${{ parameters.deployLayers }}', 'Core')
-          )
+        condition: and(in(dependencies.Deploy_Security.result, 'Succeeded'), contains('${{ parameters.layerManifest }}', 'Core'))
         steps:
-          - template: steps/install-pac-cli.yml
+          - task: PowerPlatformToolInstaller@2
+            displayName: 'Install Power Platform Tools (PAC CLI)'
+            inputs:
+              DefaultVersion: true
 
           - script: |
               pac solution pack ^
-                --zipfile "$(OutputPath)/$(ProjectCode)_Core_managed.zip" ^
-                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Core/src" ^
-                --packagetype Managed ^
+                --zipfile "$(OutputPath)\$(ProjectCode)_Core_$(SolutionZipSuffix).zip" ^
+                --folder "$(Build.SourcesDirectory)\solutions\$(ProjectCode)_Core\src" ^
+                --packagetype $(SolutionPackageType) ^
                 --solutionversion "$(SolutionVersion)"
-            displayName: 'Pack $(ProjectCode)_Core (Managed)'
+            displayName: 'Pack $(ProjectCode)_Core ($(SolutionPackageType))'
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $raw = '$(Core.SettingsJson)'.Trim()
+              if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { exit 0 }
+              try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]Core settings JSON is invalid.'; exit 1 }
+              $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+              New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+              $settingsPath = Join-Path $settingsDirectory '$(ProjectCode)_Core-settings.json'
+              Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+              Write-Host 'Runtime settings file generated in the pipeline workspace.'
+              Write-Host "##vso[task.setvariable variable=CoreSettingsFilePath;issecret=true]$settingsPath"
+            displayName: 'Generate Core ephemeral settings file'
 
           - script: |
               pac auth create ^
@@ -159,75 +230,80 @@ stages:
             env:
               ClientSecret: $(ClientSecret)
 
-          - script: |
-              pac solution import ^
-                --path "$(OutputPath)/$(ProjectCode)_Core_managed.zip" ^
-                --activate-plugins true ^
-                --force-overwrite true ^
-                --publish-changes true ^
-                --skip-dependency-check false
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $pacArgs = @('solution','import','--path','$(OutputPath)\$(ProjectCode)_Core_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+              if (-not [string]::IsNullOrWhiteSpace('$(CoreSettingsFilePath)') -and (Test-Path '$(CoreSettingsFilePath)')) { $pacArgs += @('--settings-file','$(CoreSettingsFilePath)') }
+              pac @pacArgs
             displayName: 'Import $(ProjectCode)_Core to ${{ parameters.targetEnvironment }}'
 
-      # ----------------------------------------------------------
-      # CONFIG GATE: Manual validation step
-      # This is a documentation gate only — the pipeline cannot
-      # enforce that _Config has been applied, but this step
-      # records the expectation explicitly.
-      # ----------------------------------------------------------
-      - job: Config_Gate_Acknowledgment
-        displayName: '[Manual Gate] Confirm _Config applied to ${{ parameters.targetEnvironment }}'
+          - powershell: |
+              if (-not [string]::IsNullOrWhiteSpace('$(CoreSettingsFilePath)') -and (Test-Path '$(CoreSettingsFilePath)')) { Remove-Item -Path '$(CoreSettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+            displayName: 'Delete Core ephemeral settings file'
+            condition: always()
+
+      - job: Config_Gate
+        displayName: 'Config Gate: validate runtime values and bindings'
         dependsOn: Deploy_Core
         condition: |
           and(
-            in(dependencies.Deploy_Core.result, 'Succeeded', 'Skipped'),
-            contains('${{ parameters.deployLayers }}', 'Automation')
+            in(dependencies.Deploy_Core.result, 'Succeeded'),
+            or(
+              contains('${{ parameters.layerManifest }}', 'Integration'),
+              contains('${{ parameters.layerManifest }}', 'Automation'),
+              contains('${{ parameters.layerManifest }}', 'UI_Operations'),
+              contains('${{ parameters.layerManifest }}', 'UI_Admin')
+            )
           )
-        pool: server  # Runs as server job for manual validation
         steps:
-          - task: ManualValidation@0
-            displayName: 'Confirm: _Config manually applied to ${{ parameters.targetEnvironment }}'
-            inputs:
-              notifyUsers: ''
-              instructions: |
-                REQUIRED: Before approving, confirm that $(ProjectCode)_Config has been
-                manually imported to the $(EnvironmentUrl) environment.
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              function Test-RequiredMap($label, $mapText) {
+                if ([string]::IsNullOrWhiteSpace($mapText)) { Write-Host "$label check has no required entries."; return }
+                foreach ($entry in ($mapText -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+                  $parts = $entry.Split('=', 2)
+                  if ($parts.Count -ne 2 -or [string]::IsNullOrWhiteSpace($parts[0])) { Write-Host "##vso[task.logissue type=error]Invalid $label validation entry. Use logicalName=variableMacro format."; exit 1 }
+                  $name = $parts[0].Trim(); $value = $parts[1].Trim()
+                  if ([string]::IsNullOrWhiteSpace($value) -or $value.StartsWith('$(')) { Write-Host "##vso[task.logissue type=error]Missing required $label entry: $name"; exit 1 }
+                  Write-Host "$label entry validated: $name"
+                }
+              }
+              Test-RequiredMap 'environment value' '${{ parameters.requiredEnvironmentVariableValues }}'
+              Test-RequiredMap 'connection binding' '${{ parameters.requiredConnectionBindings }}'
+            displayName: 'Validate required values and connection bindings'
 
-                This includes:
-                - All environment variable values set for this environment
-                - All connection references bound to service account connections
-                - No personal credentials used in any connection
-
-                _Config is NEVER deployed by this pipeline. It must be done manually.
-                If _Config is not applied, Automation layer flows will fail to activate.
-
-                Approve only when _Config is confirmed in place.
-              onTimeout: 'reject'
-            timeoutInMinutes: 1440  # 24 hours to complete manual step
-
-      # ----------------------------------------------------------
-      # JOB 3: Deploy _Automation layer (depends on Core + Config gate)
-      # ----------------------------------------------------------
-      - job: Deploy_Automation
-        displayName: 'Deploy _Automation Layer'
+      - job: Deploy_Integration
+        displayName: 'Deploy Integration Layer'
         dependsOn:
           - Deploy_Core
-          - Config_Gate_Acknowledgment
-        condition: |
-          and(
-            in(dependencies.Deploy_Core.result, 'Succeeded', 'Skipped'),
-            in(dependencies.Config_Gate_Acknowledgment.result, 'Succeeded', 'Skipped'),
-            contains('${{ parameters.deployLayers }}', 'Automation')
-          )
+          - Config_Gate
+        condition: and(in(dependencies.Deploy_Core.result, 'Succeeded'), in(dependencies.Config_Gate.result, 'Succeeded', 'Skipped'), contains('${{ parameters.layerManifest }}', 'Integration'))
         steps:
-          - template: steps/install-pac-cli.yml
+          - task: PowerPlatformToolInstaller@2
+            displayName: 'Install Power Platform Tools (PAC CLI)'
+            inputs:
+              DefaultVersion: true
 
           - script: |
               pac solution pack ^
-                --zipfile "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
-                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_Automation/src" ^
-                --packagetype Managed ^
+                --zipfile "$(OutputPath)\$(ProjectCode)_Integration_$(SolutionZipSuffix).zip" ^
+                --folder "$(Build.SourcesDirectory)\solutions\$(ProjectCode)_Integration\src" ^
+                --packagetype $(SolutionPackageType) ^
                 --solutionversion "$(SolutionVersion)"
-            displayName: 'Pack $(ProjectCode)_Automation (Managed)'
+            displayName: 'Pack $(ProjectCode)_Integration ($(SolutionPackageType))'
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $raw = '$(Integration.SettingsJson)'.Trim()
+              if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { exit 0 }
+              try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]Integration settings JSON is invalid.'; exit 1 }
+              $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+              New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+              $settingsPath = Join-Path $settingsDirectory '$(ProjectCode)_Integration-settings.json'
+              Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+              Write-Host 'Runtime settings file generated in the pipeline workspace.'
+              Write-Host "##vso[task.setvariable variable=IntegrationSettingsFilePath;issecret=true]$settingsPath"
+            displayName: 'Generate Integration ephemeral settings file'
 
           - script: |
               pac auth create ^
@@ -241,36 +317,108 @@ stages:
             env:
               ClientSecret: $(ClientSecret)
 
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $pacArgs = @('solution','import','--path','$(OutputPath)\$(ProjectCode)_Integration_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+              if (-not [string]::IsNullOrWhiteSpace('$(IntegrationSettingsFilePath)') -and (Test-Path '$(IntegrationSettingsFilePath)')) { $pacArgs += @('--settings-file','$(IntegrationSettingsFilePath)') }
+              pac @pacArgs
+            displayName: 'Import $(ProjectCode)_Integration to ${{ parameters.targetEnvironment }}'
+
+          - powershell: |
+              if (-not [string]::IsNullOrWhiteSpace('$(IntegrationSettingsFilePath)') -and (Test-Path '$(IntegrationSettingsFilePath)')) { Remove-Item -Path '$(IntegrationSettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+            displayName: 'Delete Integration ephemeral settings file'
+            condition: always()
+
+      - job: Deploy_Automation
+        displayName: 'Deploy Automation Layer'
+        dependsOn:
+          - Deploy_Core
+          - Config_Gate
+          - Deploy_Integration
+        condition: and(in(dependencies.Deploy_Core.result, 'Succeeded'), in(dependencies.Config_Gate.result, 'Succeeded', 'Skipped'), in(dependencies.Deploy_Integration.result, 'Succeeded', 'Skipped'), contains('${{ parameters.layerManifest }}', 'Automation'))
+        steps:
+          - task: PowerPlatformToolInstaller@2
+            displayName: 'Install Power Platform Tools (PAC CLI)'
+            inputs:
+              DefaultVersion: true
+
           - script: |
-              pac solution import ^
-                --path "$(OutputPath)/$(ProjectCode)_Automation_managed.zip" ^
-                --activate-plugins true ^
-                --force-overwrite true ^
-                --publish-changes true ^
-                --skip-dependency-check false
+              pac solution pack ^
+                --zipfile "$(OutputPath)\$(ProjectCode)_Automation_$(SolutionZipSuffix).zip" ^
+                --folder "$(Build.SourcesDirectory)\solutions\$(ProjectCode)_Automation\src" ^
+                --packagetype $(SolutionPackageType) ^
+                --solutionversion "$(SolutionVersion)"
+            displayName: 'Pack $(ProjectCode)_Automation ($(SolutionPackageType))'
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $raw = '$(Automation.SettingsJson)'.Trim()
+              if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { exit 0 }
+              try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]Automation settings JSON is invalid.'; exit 1 }
+              $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+              New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+              $settingsPath = Join-Path $settingsDirectory '$(ProjectCode)_Automation-settings.json'
+              Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+              Write-Host 'Runtime settings file generated in the pipeline workspace.'
+              Write-Host "##vso[task.setvariable variable=AutomationSettingsFilePath;issecret=true]$settingsPath"
+            displayName: 'Generate Automation ephemeral settings file'
+
+          - script: |
+              pac auth create ^
+                --kind ServicePrincipal ^
+                --applicationId "$(ApplicationId)" ^
+                --clientSecret "$(ClientSecret)" ^
+                --tenant "$(TenantId)" ^
+                --cloud UsGovHigh ^
+                --environment "$(EnvironmentUrl)"
+            displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+            env:
+              ClientSecret: $(ClientSecret)
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $pacArgs = @('solution','import','--path','$(OutputPath)\$(ProjectCode)_Automation_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+              if (-not [string]::IsNullOrWhiteSpace('$(AutomationSettingsFilePath)') -and (Test-Path '$(AutomationSettingsFilePath)')) { $pacArgs += @('--settings-file','$(AutomationSettingsFilePath)') }
+              pac @pacArgs
             displayName: 'Import $(ProjectCode)_Automation to ${{ parameters.targetEnvironment }}'
 
-      # ----------------------------------------------------------
-      # JOB 4: Deploy _UI layer (depends on Automation)
-      # ----------------------------------------------------------
-      - job: Deploy_UI
-        displayName: 'Deploy _UI Layer'
-        dependsOn: Deploy_Automation
-        condition: |
-          and(
-            in(dependencies.Deploy_Automation.result, 'Succeeded', 'Skipped'),
-            contains('${{ parameters.deployLayers }}', 'UI')
-          )
+          - powershell: |
+              if (-not [string]::IsNullOrWhiteSpace('$(AutomationSettingsFilePath)') -and (Test-Path '$(AutomationSettingsFilePath)')) { Remove-Item -Path '$(AutomationSettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+            displayName: 'Delete Automation ephemeral settings file'
+            condition: always()
+
+      - job: Deploy_UI_Operations
+        displayName: 'Deploy Operations UI Layer'
+        dependsOn:
+          - Config_Gate
+          - Deploy_Automation
+        condition: and(in(dependencies.Config_Gate.result, 'Succeeded', 'Skipped'), in(dependencies.Deploy_Automation.result, 'Succeeded', 'Skipped'), contains('${{ parameters.layerManifest }}', 'UI_Operations'))
         steps:
-          - template: steps/install-pac-cli.yml
+          - task: PowerPlatformToolInstaller@2
+            displayName: 'Install Power Platform Tools (PAC CLI)'
+            inputs:
+              DefaultVersion: true
 
           - script: |
               pac solution pack ^
-                --zipfile "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
-                --folder "$(Build.SourcesDirectory)/solutions/$(ProjectCode)_UI/src" ^
-                --packagetype Managed ^
+                --zipfile "$(OutputPath)\$(ProjectCode)_UI_Operations_$(SolutionZipSuffix).zip" ^
+                --folder "$(Build.SourcesDirectory)\solutions\$(ProjectCode)_UI_Operations\src" ^
+                --packagetype $(SolutionPackageType) ^
                 --solutionversion "$(SolutionVersion)"
-            displayName: 'Pack $(ProjectCode)_UI (Managed)'
+            displayName: 'Pack $(ProjectCode)_UI_Operations ($(SolutionPackageType))'
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $raw = '$(UI_Operations.SettingsJson)'.Trim()
+              if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { exit 0 }
+              try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]UI_Operations settings JSON is invalid.'; exit 1 }
+              $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+              New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+              $settingsPath = Join-Path $settingsDirectory '$(ProjectCode)_UI_Operations-settings.json'
+              Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+              Write-Host 'Runtime settings file generated in the pipeline workspace.'
+              Write-Host "##vso[task.setvariable variable=UI_OperationsSettingsFilePath;issecret=true]$settingsPath"
+            displayName: 'Generate UI_Operations ephemeral settings file'
 
           - script: |
               pac auth create ^
@@ -284,25 +432,84 @@ stages:
             env:
               ClientSecret: $(ClientSecret)
 
-          - script: |
-              pac solution import ^
-                --path "$(OutputPath)/$(ProjectCode)_UI_managed.zip" ^
-                --activate-plugins true ^
-                --force-overwrite true ^
-                --publish-changes true ^
-                --skip-dependency-check false
-            displayName: 'Import $(ProjectCode)_UI to ${{ parameters.targetEnvironment }}'
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $pacArgs = @('solution','import','--path','$(OutputPath)\$(ProjectCode)_UI_Operations_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+              if (-not [string]::IsNullOrWhiteSpace('$(UI_OperationsSettingsFilePath)') -and (Test-Path '$(UI_OperationsSettingsFilePath)')) { $pacArgs += @('--settings-file','$(UI_OperationsSettingsFilePath)') }
+              pac @pacArgs
+            displayName: 'Import $(ProjectCode)_UI_Operations to ${{ parameters.targetEnvironment }}'
 
-      # ----------------------------------------------------------
-      # FINAL: Publish artifacts for rollback reference
-      # ----------------------------------------------------------
+          - powershell: |
+              if (-not [string]::IsNullOrWhiteSpace('$(UI_OperationsSettingsFilePath)') -and (Test-Path '$(UI_OperationsSettingsFilePath)')) { Remove-Item -Path '$(UI_OperationsSettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+            displayName: 'Delete UI_Operations ephemeral settings file'
+            condition: always()
+
+      - job: Deploy_UI_Admin
+        displayName: 'Deploy Admin UI Layer'
+        dependsOn:
+          - Config_Gate
+          - Deploy_Automation
+        condition: and(in(dependencies.Config_Gate.result, 'Succeeded', 'Skipped'), in(dependencies.Deploy_Automation.result, 'Succeeded', 'Skipped'), contains('${{ parameters.layerManifest }}', 'UI_Admin'))
+        steps:
+          - task: PowerPlatformToolInstaller@2
+            displayName: 'Install Power Platform Tools (PAC CLI)'
+            inputs:
+              DefaultVersion: true
+
+          - script: |
+              pac solution pack ^
+                --zipfile "$(OutputPath)\$(ProjectCode)_UI_Admin_$(SolutionZipSuffix).zip" ^
+                --folder "$(Build.SourcesDirectory)\solutions\$(ProjectCode)_UI_Admin\src" ^
+                --packagetype $(SolutionPackageType) ^
+                --solutionversion "$(SolutionVersion)"
+            displayName: 'Pack $(ProjectCode)_UI_Admin ($(SolutionPackageType))'
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $raw = '$(UI_Admin.SettingsJson)'.Trim()
+              if ([string]::IsNullOrWhiteSpace($raw) -or $raw.StartsWith('$(')) { exit 0 }
+              try { $null = $raw | ConvertFrom-Json } catch { Write-Host '##vso[task.logissue type=error]UI_Admin settings JSON is invalid.'; exit 1 }
+              $settingsDirectory = Join-Path '$(Pipeline.Workspace)' 'ephemeral-settings'
+              New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+              $settingsPath = Join-Path $settingsDirectory '$(ProjectCode)_UI_Admin-settings.json'
+              Set-Content -Path $settingsPath -Value $raw -NoNewline -Encoding UTF8
+              Write-Host 'Runtime settings file generated in the pipeline workspace.'
+              Write-Host "##vso[task.setvariable variable=UI_AdminSettingsFilePath;issecret=true]$settingsPath"
+            displayName: 'Generate UI_Admin ephemeral settings file'
+
+          - script: |
+              pac auth create ^
+                --kind ServicePrincipal ^
+                --applicationId "$(ApplicationId)" ^
+                --clientSecret "$(ClientSecret)" ^
+                --tenant "$(TenantId)" ^
+                --cloud UsGovHigh ^
+                --environment "$(EnvironmentUrl)"
+            displayName: 'Authenticate to ${{ parameters.targetEnvironment }} (GCC High)'
+            env:
+              ClientSecret: $(ClientSecret)
+
+          - powershell: |
+              $ErrorActionPreference = 'Stop'
+              $pacArgs = @('solution','import','--path','$(OutputPath)\$(ProjectCode)_UI_Admin_$(SolutionZipSuffix).zip','--activate-plugins','true','--force-overwrite','true','--publish-changes','true','--skip-dependency-check','false')
+              if (-not [string]::IsNullOrWhiteSpace('$(UI_AdminSettingsFilePath)') -and (Test-Path '$(UI_AdminSettingsFilePath)')) { $pacArgs += @('--settings-file','$(UI_AdminSettingsFilePath)') }
+              pac @pacArgs
+            displayName: 'Import $(ProjectCode)_UI_Admin to ${{ parameters.targetEnvironment }}'
+
+          - powershell: |
+              if (-not [string]::IsNullOrWhiteSpace('$(UI_AdminSettingsFilePath)') -and (Test-Path '$(UI_AdminSettingsFilePath)')) { Remove-Item -Path '$(UI_AdminSettingsFilePath)' -Force; Write-Host 'Ephemeral settings file deleted.' }
+            displayName: 'Delete UI_Admin ephemeral settings file'
+            condition: always()
+
       - job: Publish_Artifacts
         displayName: 'Publish Solution Artifacts'
         dependsOn:
           - Deploy_Security
           - Deploy_Core
+          - Deploy_Integration
           - Deploy_Automation
-          - Deploy_UI
+          - Deploy_UI_Operations
+          - Deploy_UI_Admin
         condition: always()
         steps:
           - publish: $(OutputPath)
