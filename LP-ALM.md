@@ -12,7 +12,7 @@ render_with_liquid: false
 
 **Version:** 1.0  
 **Date:** May 2026  
-**Applicability:** Microsoft Power Platform / Dataverse — Commercial, GCC, GCC High (FedRAMP)
+**Applicability:** Microsoft Power Platform / Dataverse — Commercial, GCC, GCC High, and other regulated or enterprise contexts
 
 ---
 
@@ -70,13 +70,22 @@ LP-ALM is not appropriate for single-environment prototypes, maker / low-code pr
 
 ### 1.4 Security Architecture Statement (ATO/Security Plan Language)
 
-> The Layered Platform ALM methodology implements a defense-in-depth deployment architecture for Microsoft Power Platform. Security roles and field security profiles are established as the first deployment action in every environment, ensuring that access control structures precede the creation of any data schema, application logic, or user interface. Environment-specific configuration values, including connection strings, shared secret references, tenant-specific identifiers, and connection bindings, are classified as deployment-controlled configuration data and are explicitly excluded from source control. Values are supplied through approved secret-backed deployment mechanisms and evidenced by a metadata-only environment configuration register, or by a justified optional unmanaged `_Config` solution when auditors require a solution-artifact evidence trail. All upper-environment deployments use managed solutions, preventing ad-hoc customization and enforcing change control through the pipeline. Pipeline execution uses service principal application users with the minimum required privileges for each layer. This architecture directly implements NIST SP 800-53 controls AC-2, AC-3, CM-2, CM-3, CM-6, and SA-3, and is designed to support FedRAMP Moderate and High authorization requirements in Microsoft Azure Government (GCC High) environments.
+> The Layered Platform ALM methodology implements a defense-in-depth deployment architecture for Microsoft Power Platform. Security roles and field security profiles are established as the first deployment action in every environment, ensuring that access control structures precede the creation of any data schema, application logic, or user interface. Environment-specific configuration values, including connection strings, shared secret references, tenant-specific identifiers, and connection bindings, are classified as deployment-controlled configuration data and are explicitly excluded from source control. Values are supplied through approved secret-backed deployment mechanisms and evidenced by a metadata-only environment configuration register, or by a justified optional unmanaged `_Config` solution when auditors need a solution-artifact evidence trail. All upper-environment deployments use managed solutions, preventing ad-hoc customization and enforcing change control through the pipeline. Pipeline execution uses service principal application users with the minimum privileges needed by the deployed layer and platform constraint. This architecture directly implements NIST SP 800-53 controls AC-2, AC-3, CM-2, CM-3, CM-6, and SA-3, and is designed to support secure deployments in commercial, sovereign, and regulated environments, including Microsoft Azure Government (GCC High).
+
+
+### 1.5 Authoring Principles
+
+LP-ALM is a secure framework, not an authority over every tenant, agency, or identity policy. Use the following authoring rules when adapting this methodology:
+
+- Use **RECOMMENDED** and **SHOULD** for controls outside the framework's authority. Reserve **MUST**, **REQUIRED**, and equivalent language for genuine framework invariants: `_Security` deploys first, `_Core` owns schema, `_Config` and raw values are never committed, zero secrets are written to source, UI solutions are schema-free, and upper environments receive managed solutions.
+- Scope guidance to secure-framework outcomes. Treat GCC High, IL4, IL5, FedRAMP, and similar regulated environments as example contexts where these controls are often useful; do not label a control as GCC High-required unless quoting an external authority.
+- Every recommended control SHOULD include a fallback or alternative. For connection references, the recommended default is a dedicated service account; when unavailable, use a least-privilege delegated identity with documented ownership, credential rotation, approval authority, and environment-register evidence.
 
 ---
 
 ## 2. Layer Definitions
 
-LP-ALM layers deploy according to mandatory dependency invariants, not a fixed requirement to create every possible solution. The sequence is not a convention — it is a dependency contract. Each optional layer is added only when the project has the components or governance boundaries that require it.
+LP-ALM layers deploy according to mandatory dependency invariants, not a fixed expectation to create every possible solution. The sequence is not a convention — it is a dependency contract. Each optional layer is added only when the project has the components or governance boundaries that justify it.
 
 **Mandatory order:** `_Security` → `_Core` → Config Gate → optional `_Integration` → optional `_Automation` → `_UI` / `_UI_Operations` / `_UI_Admin`
 
@@ -207,14 +216,14 @@ Is this an environment variable value?                               → Config 
 
 ### 2.3 Configuration Values: Config Gate and Optional `_Config`
 
-**Purpose:** Keep environment-specific values out of source control while proving that each environment has the required configuration before dependent layers activate.
+**Purpose:** Keep environment-specific values out of source control while proving that each environment has the necessary configuration before dependent layers activate.
 
 **Default pattern:** LP-ALM no longer mandates a dedicated `_Config` solution. The default is the **Config Gate**:
 
 1. Environment variable **definitions** live in `_Core`.
 2. Environment variable **values**, connection bindings, endpoint URLs, tenant identifiers, and secrets are supplied at deployment time from approved secret-backed Azure DevOps variables / Key Vault.
 3. The pipeline may generate an ephemeral settings file for `pac solution import --settings-file`, use it for the import, and delete it immediately. The settings file is never committed, retained, or published as an artifact.
-4. A metadata-only environment configuration register records logical name, environment, owner, required/optional status, secret classification, source variable name, approval/change reference, and last-reviewed date. It never records raw values.
+4. A metadata-only environment configuration register records logical name, environment, owner, necessity status, secret classification, source variable name, approval/change reference, and last-reviewed date. It never records raw values.
 
 **High-control alternative:** A dedicated **unmanaged** `{ProjectCode}_Config` solution remains allowed when auditors require a tangible solution-artifact evidence trail. This is an opt-out from the default with documented justification, not the baseline. It is manually applied, never committed, never published as a pipeline artifact, and never treated as the authoritative source for secrets.
 
@@ -246,10 +255,10 @@ Do auditors require a solution-artifact evidence trail?       → Optional unman
 
 **Configuration values are NEVER committed to source control. This is non-negotiable.**
 
-The rationale: environment variable values frequently contain tenant-specific identifiers, endpoint URLs, and other values that differ between sovereign cloud environments (commercial vs. GCC High). Committing these values risks:
+The rationale: environment variable values frequently contain tenant-specific identifiers, endpoint URLs, and other values that differ between environments and cloud boundaries. Committing these values risks:
 
 1. Exposing tenant topology information in a potentially public or audited repository
-2. Accidentally deploying commercial values into GCC High environments (or vice versa)
+2. Accidentally deploying values into the wrong environment or cloud boundary
 3. Creating a false expectation that source control is the authoritative source for configuration
 
 The authoritative evidence for configuration governance is the environment configuration register plus Key Vault / Azure DevOps audit logs, approvals, and deployment run history. Raw values remain in approved secret storage or in the target environment — not the repository.
@@ -307,7 +316,7 @@ Are there no automation runtime assets?                         → omit _Automa
 - `_Security` (flows run as users subject to security roles)
 - `_Core` (flows reference tables and columns)
 - `_Integration` when it consumes shared integration components
-- Config Gate readiness (connection reference values and environment variable values must be present)
+- Config Gate readiness (connection reference values and environment variable values are present before activation)
 
 The Config Gate must pass before `_Automation` is deployed or activated. If environment variable values and connection references are not populated, flow activation will fail.
 
@@ -321,18 +330,18 @@ The Config Gate must pass before `_Automation` is deployed or activated. If envi
 
 #### Source Control
 
-**Yes.** Flow definitions, connection reference schemas, and environment variable definitions are all committed. Connection reference *values* (the actual credential binding) are populated through the Config Gate and service account binding — not from source control.
+**Yes.** Flow definitions, connection reference schemas, and environment variable definitions are all committed. Connection reference *values* (the actual credential binding) are populated through the Config Gate and an approved identity binding — not from source control.
 
 #### Connection Reference Binding
 
-Connection references in `_Automation` must be bound to service accounts, not personal credentials. When the solution is imported to Test or Prod:
+Connection references in `_Automation` SHOULD be bound to dedicated service accounts by default, not personal credentials. When a dedicated service account is unavailable, the secure fallback is a least-privilege delegated identity with documented ownership, rotation expectations, approval authority, and environment-register evidence. When the solution is imported to Test or Prod:
 
 1. The connection reference schema is imported as part of the managed solution
-2. The connection (the actual credential binding) must be created in the target environment using a service account
+2. The connection (the actual credential binding) should be created in the target environment using the approved identity: preferably a dedicated service account, or the documented delegated fallback when a service account is unavailable
 3. This binding is applied via a post-import step using PAC CLI or the Power Platform Admin Center
-4. Personal credential connections are never used — they fail when the user's credentials expire or the user leaves
+4. Personal credential connections should not be used in shared or upper environments; if a delegated identity is the approved fallback, its owner, rotation process, and continuity plan are documented
 
-> **GCC High Note:** Connection URLs in GCC High use `.crm.microsoftdynamics.us` instead of `.crm.dynamics.com`. Service account connections must be created with the correct sovereign cloud endpoint. The environment URL must be explicitly specified in all PAC CLI commands.
+> **Sovereign cloud example:** GCC High connection URLs use `.crm.microsoftdynamics.us` instead of `.crm.dynamics.com`. Approved identity connections should use the correct endpoint for the target cloud, and PAC CLI commands should explicitly specify the target environment URL.
 
 ---
 
@@ -372,7 +381,7 @@ Is this a PCF control?                                              → _UI
 Is this a web resource used by a form?
   If it enforces data-integrity or schema-adjacent behavior:          → _Core
   If it is UX-only display/rendering behavior:                       → _UI
-Would a _Core form need to reference a _UI web resource?             → split the physical files; _Core must not depend on _UI
+Would a _Core form need to reference a _UI web resource?             → split the physical files; _Core does not depend on _UI
 ```
 
 #### The Schema Contamination Rule
@@ -388,7 +397,7 @@ Violation of this rule causes a hard dependency failure: `_UI` would import a sc
 
 Web resources are split by **physical files** and dependency direction, not by intent alone:
 
-- Data-integrity or schema-adjacent web resources required by `_Core` forms live in `_Core`.
+- Data-integrity or schema-adjacent web resources needed by `_Core` forms live in `_Core`.
 - UX-only web resources used only by apps, command bars, custom pages, or app-specific rendering live in `_UI`, `{ProjectCode}_UI_Operations`, or `{ProjectCode}_UI_Admin`.
 - `_Core` forms must never depend on `_UI` web resources. If both concerns exist, split the JavaScript into separate physical files so dependencies point from UI to Core, never from Core to UI.
 - Client-side JavaScript is not an integrity boundary. Required fields, relationships, business rules, plugins, server-side logic, and security roles enforce real integrity.
@@ -433,11 +442,11 @@ LP-ALM is a governed decomposition model, not a mandate to create empty layers. 
 
 #### Tier Selection Requires Justification
 
-Tier selection must be recorded as an ADR-style decision before implementation. The record should state the selected tier, the facts that justify it, rejected alternatives, and the evidence location for future audit review.
+Tier selection should be recorded as an ADR-style decision before implementation. The record should state the selected tier, the facts that justify it, rejected alternatives, and the evidence location for future audit review.
 
 - **Minimum** = `_Security` + `_Core` + one schema-free UI solution. Minimum is allowed only when there are no external integrations, no cross-boundary or CUI data movement, and no privileged admin UI.
 - **Standard** = Minimum + `_Automation` when automation exists but integrations are not shared, cross-boundary, or independently governed.
-- **Enterprise** = Standard + `_Integration` + multiple UI solutions as warranted. Enterprise is required when CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, or external ATO dependencies exist.
+- **Enterprise** = Standard + `_Integration` + multiple UI solutions as warranted. Enterprise is recommended when CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, or external ATO dependencies exist; if a project does not adopt it, document the compensating control and owner.
 
 This prevents teams from choosing a smaller tier to dodge governance. Governed defaults remain the baseline; projects may omit optional layers only with documented justification.
 
@@ -510,22 +519,22 @@ The combination of managed solutions and the layer architecture means each layer
 
 | Control | Control Name | LP-ALM Implementation |
 |---|---|---|
-| AC-2 | Account Management | Service principal application users are provisioned and documented per environment. Personal credential binding is prohibited in Test and above. Connection references are bound to managed service accounts where agency policy permits; when service accounts are prohibited by IAM policy (common in DoD), a formal account provisioning request must document the non-personal credential approved for each environment tier. |
+| AC-2 | Account Management | Service principal application users are provisioned and documented per environment. Personal credential binding is avoided in Test and above. Connection references use managed service accounts where policy permits; when service accounts are unavailable, the environment register documents the approved least-privilege delegated or non-personal identity, owner, rotation plan, and approval authority. |
 | AC-3 | Access Enforcement | Security roles deploy before schema (`_Security` first). Every table and column has a corresponding access control structure at all times. Managed solutions prevent unauthorized modification. |
-| AC-6 | Least Privilege | Security roles are designed per persona with minimum required privileges. Pipeline service principal uses only the built-in System Administrator role (required for `prvWriteRole`) — no over-privileging beyond platform requirement. |
+| AC-6 | Least Privilege | Security roles are designed per persona with minimum necessary privileges. Pipeline service principal uses only the built-in System Administrator role for the `_Security` job when `prvWriteRole` is needed — no over-privileging beyond platform constraint. |
 | CM-2 | Baseline Configuration | Source control contains the authoritative baseline for committed solution layers (`_Security`, `_Core`, and any optional `_Integration`, `_Automation`, or UI solutions). Configuration values are deployment-controlled artifacts evidenced by the metadata-only environment configuration register, not by committed value files. |
 | CM-3 | Configuration Change Control | All changes to committed layers go through pull request review and pipeline validation before deployment. Configuration value changes are controlled through approved secret stores, deployment approvals, environment register updates, and Azure DevOps / Key Vault audit logs. No direct unmanaged customization in Test/Prod is permitted (managed solution enforcement). |
-| CM-6 | Configuration Settings | Environment-specific values are supplied through secret-backed deployment inputs / Key Vault and an ephemeral settings file when required. The environment configuration register records metadata and review evidence. An unmanaged `_Config` solution is optional only when justified as a high-control evidence artifact; no configuration values are hardcoded in pipeline definitions or committed to source. |
+| CM-6 | Configuration Settings | Environment-specific values are supplied through secret-backed deployment inputs / Key Vault and an ephemeral settings file when needed. The environment configuration register records metadata and review evidence. An unmanaged `_Config` solution is optional only when justified as a high-control evidence artifact; no configuration values are hardcoded in pipeline definitions or committed to source. |
 | SA-3 | System Development Life Cycle | LP-ALM defines a structured SDLC for Power Platform: development in unmanaged Dev, validation in managed Test, promotion to managed Prod with independent layer sequencing and rollback capability. |
 | SI-2 | Flaw Remediation | Layer isolation enables targeted remediation. A security role flaw requires only `_Security` reimport. A flow defect requires only `_Automation` reimport. Neither triggers a full solution deployment. |
 
-### 3.5 GCC High Specific Requirements
+### 3.5 Sovereign Cloud Example: GCC High
 
-GCC High (Azure Government, `.us` sovereign cloud) diverges from commercial Power Platform in several areas relevant to LP-ALM.
+GCC High (Azure Government, `.us` sovereign cloud) is an example regulated context that diverges from commercial Power Platform in several areas relevant to LP-ALM. Treat this section as implementation guidance for that context, not as the only target for the methodology.
 
 #### Application User Configuration
 
-In GCC High, interactive login cannot be used for pipeline service connections. All pipeline authentication must use **application users** (service principals registered in Azure Government AD, not commercial Azure AD):
+For GCC High pipeline service connections, use **application users** (service principals registered in Azure Government AD, not commercial Azure AD) rather than interactive login where tenant policy and tooling support it. If local policy requires a different approved authentication pattern, document the exception and evidence in the environment register:
 
 1. Register an app registration in the **Azure Government** tenant (`portal.azure.us`), not `portal.azure.com`
 2. Create an application user in the GCC High Power Platform environment using the App ID
@@ -547,19 +556,20 @@ https://yourorg.crm9.dynamics.com
 https://yourorg.crm.microsoftdynamics.us
 ```
 
-All PAC CLI commands must use the GCC High URL. All connection references must point to `.crm.microsoftdynamics.us` endpoints. Connection reference definitions committed to source control should not embed environment-specific URLs — those values are deployment-controlled through the Config Gate or a justified optional `_Config`.
+For GCC High deployments, PAC CLI commands should use the GCC High URL and connection references should resolve to `.crm.microsoftdynamics.us` endpoints. Connection reference definitions committed to source control should not embed environment-specific URLs — those values are deployment-controlled through the Config Gate or a justified optional `_Config`.
 
 #### Connection References and Service Account Constraints
 
-The best practice for connection references in all environments is a **non-interactive service account** — a licensed user account (not a service principal) with a stable credential, assigned only the `{ProjectCode} - Automation Service` security role, whose connections are used by all flows in that environment.
+The recommended default for connection references in all environments is a **dedicated service account** — a licensed user account (not a service principal) with a stable credential, assigned only the `{ProjectCode} - Automation Service` security role, whose connections are used by all flows in that environment.
 
 However, in many DoD agencies and classified programs, service accounts are restricted or prohibited by policy. Common constraints include CAC/PIV-only authentication requirements, zero-standing-access policies, or prohibitions on shared credentials for compliance reasons.
 
 **LP-ALM's position on this constraint:**
-- Service accounts are best practice and should be the default where agency policy permits
-- Where service accounts are prohibited, personal credential bindings are acceptable **only in individual dev and Integration Dev environments**
-- Test and above require a non-personal credential. If the agency's standard account provisioning process cannot provide a service account, the project team must formally request an IAM exception or equivalent managed identity, with documented approval authority
-- This is an agency IAM policy question, not an LP-ALM design question — LP-ALM defines the technical requirement; the project resolves it through agency channels
+- Dedicated service accounts are the recommended default where agency policy permits
+- Where service accounts are unavailable, the secure fallback is a least-privilege delegated identity with documented owner, rotation process, approval authority, and environment-register evidence
+- Personal credential bindings may be acceptable in individual dev and Integration Dev environments when documented as a dev-only limitation
+- For Test and above, use a non-personal credential where available; if unavailable, document the approved delegated fallback or IAM exception before activation
+- This is an agency IAM policy question, not an LP-ALM design question — LP-ALM defines secure outcomes and evidence expectations; the project resolves identity mechanics through agency channels
 
 See Section 5.6.9 for a full decision table and per-environment guidance on connection reference binding when service accounts are unavailable.
 
@@ -587,7 +597,7 @@ pac auth create \
 
 ### 4.1 Publisher Setup
 
-Every LP-ALM project requires a single, dedicated publisher. The publisher defines the prefix used for all custom schema components. Sharing publishers across projects is not recommended — it creates namespace collisions.
+Every LP-ALM project uses a single, dedicated publisher. The publisher defines the prefix used for all custom schema components. Sharing publishers across projects is not recommended — it creates namespace collisions.
 
 **Publisher configuration:**
 
@@ -599,8 +609,8 @@ Every LP-ALM project requires a single, dedicated publisher. The publisher defin
 | Choice Value Prefix | Numeric prefix aligned with prefix (e.g., `10000`) |
 
 **Publisher naming rules:**
-- Prefix must be lowercase alphabetic characters only (no numbers, no underscores)
-- Prefix must be 2–5 characters
+- Prefix should be lowercase alphabetic characters only (no numbers, no underscores)
+- Prefix should be 2–5 characters
 - The prefix is prepended to all custom table names, column names, and option set names in source control artifacts
 - Do not change the prefix after initial deployment — this is a schema-breaking change
 
@@ -661,7 +671,7 @@ Examples:
 ```
 
 - `ProjectCode` is uppercase, 3–8 characters, unique per project
-- `Layer` is the layer name (the leading underscore is part of the conceptual layer identifier but is not required in the solution name)
+- `Layer` is the layer name (the leading underscore is part of the conceptual layer identifier but is omitted from the solution name in this convention)
 - Do not include environment names in solution names — the solution name is constant across environments
 
 **Solution unique names (for API/programmatic use):**
@@ -672,7 +682,7 @@ Examples: systrk_security, systrk_core, systrk_automation, systrk_ui, systrk_ui_
 
 ### 4.4 Legacy Prefix Handling
 
-When an existing Power Platform project has a schema prefix that must be retained (e.g., an existing `crm` prefix used across 50 tables), do not rename it. The cost of renaming a schema prefix is extremely high: all column references in flows, apps, and views must be updated, and the rename is not a rename in Dataverse — it is a delete-and-recreate that destroys data.
+When an existing Power Platform project has a schema prefix retained by platform history or migration constraints (e.g., an existing `crm` prefix used across 50 tables), do not rename it. The cost of renaming a schema prefix is extremely high: all column references in flows, apps, and views need to be updated, and the rename is not a rename in Dataverse — it is a delete-and-recreate that destroys data.
 
 **Approach for existing prefix retention:**
 1. Register the existing prefix as the publisher prefix for the LP-ALM publisher
@@ -682,7 +692,7 @@ When an existing Power Platform project has a schema prefix that must be retaine
 
 **Do not create a second publisher** to "start fresh" alongside an existing one in the same environment. Two publishers with different prefixes in the same environment create component ownership ambiguity and complicate future solutions.
 
-### 4.5 Environment Naming and URL Conventions for GCC High
+### 4.5 Environment Naming and URL Conventions (GCC High Example)
 
 **Environment naming:**
 ```
@@ -693,14 +703,14 @@ Examples:
   AGENCYNAME-Prod
 ```
 
-**GCC High URLs:**
+**GCC High URL example:**
 ```
 Dev:  https://agencyname-dev.crm.microsoftdynamics.us
 Test: https://agencyname-test.crm.microsoftdynamics.us
 Prod: https://agencyname.crm.microsoftdynamics.us
 ```
 
-**Never hardcode these URLs in source control.** They are `_Config` values or Azure DevOps variable group values, not repository content.
+**Never hardcode environment-specific URLs in source control.** They are Config Gate values or Azure DevOps variable group values, not repository content.
 
 ---
 
@@ -859,7 +869,7 @@ The `.ai/` directory provides structured context for GitHub Copilot, Azure AI Fo
 
 ## 5.6 Multi-Developer Workflows
 
-LP-ALM's export → unpack → commit cycle assumes a single developer working in a Dev environment at a given time. Dataverse has no checkout or lock mechanism — whoever exports last captures the current environment state, regardless of who made which change. In multi-developer teams this creates predictable failure modes that must be addressed by team topology and protocol.
+LP-ALM's export → unpack → commit cycle assumes a single developer working in a Dev environment at a given time. Dataverse has no checkout or lock mechanism — whoever exports last captures the current environment state, regardless of who made which change. In multi-developer teams this creates predictable failure modes that should be addressed by team topology and protocol.
 
 ### 5.6.1 The Shared Dev Race Condition
 
@@ -880,7 +890,7 @@ The reverse is equally problematic: Developer B exports before Developer A commi
 
 ### 5.6.3 Export Serialization Protocol (Shared Dev)
 
-When a single Dev environment is shared, the team must adopt an explicit export protocol to prevent overlapping exports:
+When a single Dev environment is shared, the team should adopt an explicit export protocol to prevent overlapping exports:
 
 1. **Announce before exporting:** Before running `pac solution export`, post a message in the team's coordination channel: `"Exporting _Core — please do not make changes until I commit."`
 2. **Export immediately after work is complete.** Do not leave uncommitted changes sitting in Dev while others work around them.
@@ -926,7 +936,7 @@ Developer C's Individual Dev ──┘
 
 ### 5.6.5 Bringing an Individual Dev Environment Up to Date
 
-When starting a new feature, or after a significant period of time, an individual dev environment must be synchronized with the current `main` state. Without this, the developer builds against stale schema and their exports will overwrite newer changes.
+When starting a new feature, or after a significant period of time, an individual dev environment should be synchronized with the current `main` state. Without this, the developer builds against stale schema and their exports will overwrite newer changes.
 
 **Sync workflow** (also available as `scripts/sync-dev-environment.ps1`):
 
@@ -950,7 +960,7 @@ pac solution pack --zipfile "./sync/SYSTRK_UI.zip"       --folder "./solutions/S
 # 3. Import in layer order
 pac solution import --path "./sync/SYSTRK_Security.zip"   --force-overwrite true --publish-changes false
 pac solution import --path "./sync/SYSTRK_Core.zip"       --force-overwrite true --publish-changes false
-# Populate required configuration values for your dev environment here (see Section 6.3)
+# Populate necessary configuration values for your dev environment here (see Section 6.3)
 pac solution import --path "./sync/SYSTRK_Automation.zip" --force-overwrite true --publish-changes false
 pac solution import --path "./sync/SYSTRK_UI.zip"         --force-overwrite true --publish-changes true
 ```
@@ -963,7 +973,7 @@ A common scenario: Developer A is building a flow (`_Automation`) that depends o
 
 **Protocol for cross-layer dependencies:**
 
-1. **Schema-first rule.** `_Core` changes must be merged to `test` (or at minimum committed to a feature branch and imported into Integration Dev) before dependent `_Automation` or `_UI` work begins in any environment.
+1. **Schema-first rule.** `_Core` changes should be merged to `test` (or at minimum committed to a feature branch and imported into Integration Dev) before dependent `_Automation` or `_UI` work begins in any environment.
 
 2. **Branch the dependency explicitly.** If Developer B's `feature/new-column` branch contains the needed schema, Developer A can branch from it:
    ```bash
@@ -991,16 +1001,16 @@ PAC CLI unpacked solutions produce XML files. Git merge conflicts in solution XM
 3. Rebuild the correct state in the environment (typically Integration Dev), then re-export and re-unpack. Let the environment be the merge tool, not git.
 4. Accept the re-export output as the resolution. Commit it.
 
-**Canvas apps are the hardest case.** Canvas app source files (produced by `pac canvas unpack`) are complex JSON that does not merge cleanly. For canvas apps specifically, assign a single owner for each app. If two developers must both work on the same canvas app, they should do so serially, not in parallel.
+**Canvas apps are the hardest case.** Canvas app source files (produced by `pac canvas unpack`) are complex JSON that does not merge cleanly. For canvas apps specifically, assign a single owner for each app. If two developers both need to work on the same canvas app, they should do so serially, not in parallel.
 
 ### 5.6.8 Configuration Values in Developer Environments
 
-Each individual dev environment needs required configuration values populated once — either on initial setup or when environment variable definitions change. For teams with many individual dev environments, the default Config Gate protocol can be supported by a lightweight developer reference process.
+Each individual dev environment needs its necessary configuration values populated once — either on initial setup or when environment variable definitions change. For teams with many individual dev environments, the default Config Gate protocol can be supported by a lightweight developer reference process.
 
 **Lightweight protocol for individual dev environments:**
 
 - Document the set of environment variable values needed for a functional individual dev environment in a **Config Reference Sheet** stored outside source control (shared encrypted document, team wiki, or Azure Key Vault reference). This is not a committed solution file — it is the human-readable values list that a developer uses to configure their environment manually.
-- When a developer sets up a new individual dev environment, they populate required values using the Config Reference Sheet or the project-approved secret-backed process.
+- When a developer sets up a new individual dev environment, they populate necessary values using the Config Reference Sheet or the project-approved secret-backed process.
 - When environment variable definitions change (`_Core` change), the Config Reference Sheet and environment configuration register are updated and developers refresh their values on next sync.
 - **Individual dev configuration values may differ from Test/Prod.** This is expected — individual dev environments often point to development-tier external systems, not production systems. The Config Reference Sheet should document which values are environment-tier-specific and what the dev-tier values are.
 
@@ -1008,56 +1018,57 @@ Each individual dev environment needs required configuration values populated on
 
 Connection references in developer environments present a specific challenge in agencies and programs where service accounts are not available or not permitted.
 
-#### Service Accounts — Best Practice
+#### Service Accounts — Recommended Default
 
-The best practice for all environments, including individual dev, is to use a **non-interactive service account** bound to connection references:
+The recommended default for all environments, including individual dev, is to use a **dedicated service account** bound to connection references:
 
 - A licensed M365/Power Platform service account (a user account, not a service principal) with a non-expiring password or managed credential
 - The account is assigned the `{ProjectCode} - Automation Service` security role
 - The connection reference in the environment is bound to a connection created under this service account
-- No developer's personal credentials appear in any connection
+- No developer's personal credentials appear in shared or upper-environment connections
 
-This approach ensures flows work even when individual team members leave or rotate credentials, and satisfies audit requirements that connections are not personally attributable.
+This approach helps flows continue when individual team members leave or rotate credentials, and supports audit expectations that shared connections are not personally attributable.
 
 #### When Service Accounts Are Not Available
 
 In many DoD agencies and classified programs, provisioning a service account for development purposes is restricted or prohibited by policy. Common constraints include:
 
-- No shared credentials permitted — every account must be attributed to an individual
+- No shared credentials permitted — every account is attributed to an individual
 - CAC/PIV-only authentication — service accounts without hardware tokens cannot be provisioned
 - Zero standing access policies — no persistent service accounts; all access is just-in-time
 - Account lifecycle policies that treat shared accounts as a compliance violation
 
-When service accounts are not available, the following approach applies:
+When service accounts are not available, use the following fallback approach:
 
 **Individual dev and Integration Dev environments:**
-- Developers bind connection references to their own personal credentials in dev environments
-- This is acceptable for development environments — it is **not** acceptable in Test, UAT, or Prod
-- Document explicitly in the environment register which connections are personally bound
-- Flows may break when that developer rotates credentials or departs — this is a known limitation of personal bindings and is acceptable risk in a dev-only environment
-- When the developer leaves the project, their personal connections must be re-bound by another team member before the next Integration Dev export
+- Developers may bind connection references to their own personal credentials in dev environments when no service account or delegated fallback is available
+- This is a dev-only fallback and should not be promoted to Test, UAT, or Prod
+- Document explicitly in the environment register which connections are personally bound, who owns them, and when they should be rotated or replaced
+- Flows may break when that developer rotates credentials or departs — this is a known limitation of personal bindings and accepted only as a documented dev-only risk
+- When the developer leaves the project, their personal connections should be re-bound by another team member before the next Integration Dev export
 
 **Test and above:**
-- In environments where service accounts are prohibited but functional connections are required, the team must escalate to the agency's Identity and Access Management (IAM) team and document the following:
-  - A formal request for a non-interactive service account (or equivalent managed identity) for the specific purpose of Power Platform connection references
-  - The security controls applied to that account (MFA, conditional access, role-limited to the `{ProjectCode} - Automation Service` role)
+- In environments where service accounts are prohibited but functional connections are needed, the team should escalate to the agency's Identity and Access Management (IAM) team and document the approved identity pattern:
+  - A formal request for a non-interactive service account, equivalent managed identity, or least-privilege delegated identity for Power Platform connection references
+  - The security controls applied to that identity (MFA or conditional access where applicable, role-limited to the `{ProjectCode} - Automation Service` role, rotation expectations)
   - The approval authority granting exception or standard provisioning
-- This is not an LP-ALM limitation — it is an agency IAM policy question. LP-ALM documents the technical requirement; the project team resolves it through the agency's standard account provisioning process.
+  - Environment-register evidence showing owner, rotation date, and fallback continuity plan
+- This is not an LP-ALM limitation — it is an agency IAM policy question. LP-ALM documents secure outcomes and evidence expectations; the project team resolves identity mechanics through the agency's standard account provisioning process.
 
 **Pipeline service principals:**
 - The `prvWriteRole` requirement (System Administrator for the `_Security` pipeline job) is separate from connection references
 - Pipeline service principals authenticate via client secret or certificate — this is typically less restricted than shared user accounts because the credential is managed in Azure Key Vault, not by a human
-- If even service principals are restricted (rare but possible in some classified programs), the pipeline must be redesigned to use interactive authentication with just-in-time approval — consult the agency's DevSecOps team for approved alternatives
+- If even service principals are restricted, the pipeline should be redesigned around an agency-approved authentication pattern, such as interactive authentication with just-in-time approval; consult the agency's DevSecOps team and document the exception
 
 **Summary by environment tier:**
 
 | Tier | Service Account Available | Service Account Prohibited |
 |---|---|---|
-| Individual Dev | Use service account (best practice) | Personal credentials acceptable — documented limitation |
-| Integration Dev | Use service account | Personal credentials acceptable with documented owner |
-| Test / SIT | Use service account — required | Escalate to IAM; do not use personal credentials |
-| UAT | Use service account — required | Escalate to IAM; do not use personal credentials |
-| Prod | Use service account — required | Cannot proceed without IAM-approved non-personal credential |
+| Individual Dev | Use dedicated service account by default | Personal credentials acceptable as a documented dev-only limitation |
+| Integration Dev | Use dedicated service account by default | Personal credentials acceptable with documented owner, rotation, and continuity plan |
+| Test / SIT | Use dedicated service account by default | Use IAM-approved delegated/non-personal fallback with owner, rotation, and environment-register evidence |
+| UAT | Use dedicated service account by default | Use IAM-approved delegated/non-personal fallback with owner, rotation, and environment-register evidence |
+| Prod | Use dedicated service account by default | Use IAM-approved delegated/non-personal fallback with owner, rotation, and environment-register evidence |
 
 ---
 
@@ -1177,7 +1188,7 @@ LP-ALM's default is the Config Gate, not a mandatory `_Config` solution. Environ
 
 ```bash
 # Example only: generate settings file from approved secret-backed deployment inputs
-# The generated file must be ephemeral, masked in logs, never committed, and never published.
+# The generated file is ephemeral, masked in logs, never committed, and never published.
 pac solution import \
   --path "./SYSTRK_Core_managed.zip" \
   --settings-file "$(Pipeline.Workspace)/generated-settings.json" \
@@ -1187,7 +1198,7 @@ pac solution import \
 # Delete generated settings file immediately after import
 ```
 
-The environment configuration register records the non-secret evidence: logical name, environment, owner, required/optional status, secret classification, source variable name, approval/change reference, and last-reviewed date. It does not record raw values.
+The environment configuration register records the non-secret evidence: logical name, environment, owner, necessity status, secret classification, source variable name, approval/change reference, and last-reviewed date. It does not record raw values.
 
 **Optional unmanaged `_Config` evidence pattern:** Use a dedicated unmanaged `{ProjectCode}_Config` solution only when auditors require a solution-artifact evidence trail. It is manually applied, justified in writing, never committed, never unpacked into `solutions/`, and never imported or published by the pipeline.
 
@@ -1269,7 +1280,7 @@ Stage: Deploy_Prod
   └── Job: Deploy_UI_Prod           (dependsOn: Deploy_Automation_Prod or Config_Gate_Prod)
 ```
 
-### 7.3 Required Pipeline Variables and Variable Groups
+### 7.3 Pipeline Variables and Variable Groups
 
 **Variable Group: `{ProjectCode}-Common`** (applies to all environments)
 
@@ -1302,16 +1313,16 @@ Stage: Deploy_Prod
 
 **What does NOT go in variable groups:**
 - Raw configuration values that are not needed by deployment automation
-- Connection reference credentials or bindings that must be created directly in the environment
+- Connection reference credentials or bindings that are created directly in the environment
 - Environment variable current values unless they are approved secret-backed deployment inputs for the Config Gate
 
 ### 7.4 Service Connection Setup for GCC High
 
 1. In Azure DevOps, navigate to **Project Settings → Service Connections**
 2. Create a new **Power Platform** service connection (or Generic if Power Platform type is unavailable)
-3. For GCC High, the server URL must be `https://yourorg.crm.microsoftdynamics.us`
-4. Use **Service Principal / Client Secret** authentication (not interactive)
-5. The App Registration must be in **Azure Government** (`portal.azure.us`), not commercial Azure
+3. For GCC High, the server URL should use `https://yourorg.crm.microsoftdynamics.us`
+4. Use **Service Principal / Client Secret** authentication (not interactive) where tenant policy permits; otherwise document the approved authentication fallback
+5. For GCC High, the App Registration should be in **Azure Government** (`portal.azure.us`), not commercial Azure
 
 Alternatively, use inline PAC CLI authentication via task inputs:
 
@@ -1471,8 +1482,8 @@ App A can pin to `Platform_Core_v1.3.0` while App B independently adopts `Platfo
 **Rules that carry forward unchanged:**
 - `_Config` solution artifacts are never part of any pipeline step — platform or application; pipelines may only perform Config Gate validation with secret-backed inputs
 - `_Security` always deploys before `_Core` in both the platform pipeline and every app pipeline
-- Upper environments receive managed solutions only — the pinned platform artifact must be the managed solution ZIP
-- GCC High deployments require `--cloud UsGovHigh` in all `pac auth create` commands in both pipelines
+- Upper environments receive managed solutions only — the pinned platform artifact is the managed solution ZIP
+- GCC High deployments should include `--cloud UsGovHigh` in `pac auth create` commands in both pipelines
 
 ---
 
@@ -1517,7 +1528,7 @@ Security roles are defined at three levels:
 
 See [docs/security-role-matrix-template.md](docs/security-role-matrix-template.md) for the full template.
 
-### 8.3 Append and Append To — Explicit Setting Required
+### 8.3 Append and Append To — Explicit Setting
 
 **Append** and **Append To** are the most commonly missed privileges in Power Platform security role design. They control relationship traversal:
 
@@ -1543,19 +1554,19 @@ LP-ALM uses Owner Teams (not Access Teams) for group-based access assignment.
 - Maintains the principle that access scope is bounded by the team's assigned records, not the entire Business Unit
 - Aligned with least-privilege: users get access to records through team membership, not blanket BU-wide access
 
-**Owner Team creation is environment data, not solution data.** Owner teams are created after solution import by an administrator — they cannot be solution-deployed. The team configuration requirements are documented in `_Security` layer documentation, but the actual team records must be created manually in each environment.
+**Owner Team creation is environment data, not solution data.** Owner teams are created after solution import by an administrator — they cannot be solution-deployed. The team configuration expectations are documented in `_Security` layer documentation, but the actual team records are created manually in each environment.
 
 ### 8.5 `prvWriteRole` Requirement for Pipeline Service Principals
 
 The `prvWriteRole` privilege — required to deploy security roles — is only available to the built-in **System Administrator** role. It cannot be granted to a custom security role.
 
-**Impact:** The service principal used for the `_Security` layer pipeline job must have the **System Administrator built-in role** in the target environment.
+**Impact:** The service principal used for the `_Security` layer pipeline job requires the **System Administrator built-in role** in the target environment because of the Dataverse `prvWriteRole` constraint.
 
 **Implementation options:**
 
 1. **Dedicated SP for `_Security`:** Use a separate service principal for the Security layer with System Administrator; use a minimum-privilege SP for remaining layers
 2. **Single SP with System Administrator:** Accept System Administrator for one SP and compensate with pipeline access controls (only the pipeline can invoke this SP, not individual developers)
-3. **Document the exception:** Either way, the System Administrator assignment must be documented in the security plan as a justified exception, not an oversight
+3. **Document the exception:** Either way, document the System Administrator assignment in the security plan as a justified exception, not an oversight
 
 **Do not grant System Administrator to a service principal without documenting this in the security plan.**
 
@@ -1591,8 +1602,8 @@ View and update records for troubleshooting; no create or delete.
 Service account role for Power Automate flows and integrations.
 - All custom tables: Organization-level CRUD + Append + Append To
 - No Assign or Share (flows don't need record reassignment unless explicitly designed)
-- Miscellaneous: only privileges required by specific flows (explicitly listed)
-- This role is assigned to the service account used by connection references
+- Miscellaneous: only privileges needed by specific flows (explicitly listed)
+- This role is assigned to the approved automation identity used by connection references
 
 ---
 
@@ -1630,7 +1641,7 @@ App B Dev → App B Integration Dev → Test → Prod  (consumes pinned platform
 
 In this topology the Platform Integration Dev environment is the canonical export source for `_Core`. App teams maintain separate Integration Dev environments for their own `_Automation` and `_UI` layers. Test and Prod environments may be shared across apps or isolated per app depending on ATO boundary requirements and environment licensing constraints.
 
-For GCC High deployments, a commercial sandbox environment is often maintained alongside the GCC High topology for development tooling access (e.g., Copilot Studio features not yet available in GCC High), with the GCC High Integration Dev as the canonical source for exports.
+For GCC High deployments, a commercial sandbox environment is sometimes maintained alongside the GCC High topology for development tooling access (e.g., Copilot Studio features not yet available in GCC High), with the GCC High Integration Dev as the canonical source for exports when the production boundary requires it.
 
 **Choosing a topology:**
 
@@ -1640,7 +1651,7 @@ For GCC High deployments, a commercial sandbox environment is often maintained a
 | 3–5 developers, same functional area | Shared Dev → Test → Prod with export protocol |
 | 5+ developers | Individual Dev + Integration Dev → Test → Prod |
 | Cross-functional team (Security, Core, UI owned separately) | Individual Dev + Integration Dev → Test → Prod |
-| Regulated/GCC High, any team size | Individual Dev + Integration Dev → SIT → UAT → Prod |
+| Regulated or high-control boundary, any team size | Individual Dev + Integration Dev → SIT → UAT → Prod |
 
 See Section 5.6 for the full multi-developer workflow, export serialization protocol, and Integration Dev operating procedures.
 
@@ -1659,17 +1670,17 @@ See Section 5.6 for the full multi-developer workflow, export serialization prot
 - Pipeline automation applies only to Test/Prod (and SIT/UAT in extended topology)
 - Dev environments receive unmanaged solutions so developers can iterate without pipeline overhead
 
-### 9.3 Data Residency and Sovereignty for GCC High
+### 9.3 Data Residency and Sovereignty (GCC High Example)
 
 GCC High environments are physically isolated in Azure Government regions (USGov Virginia, USGov Texas). Data at rest and in transit does not cross into commercial Azure regions.
 
-**Relevant constraints for LP-ALM:**
-- Development environments for GCC High projects may be in commercial (for developer tooling access), but Test and Prod must be in GCC High
-- Any external integration (API, webhook, connector) called from GCC High flows must also reside in a FedRAMP-authorized boundary or be explicitly authorized for data egress
-- Custom connectors used by `_Automation` must point to FedRAMP-authorized endpoints
-- Microsoft 365 connectors (SharePoint, Teams, Exchange) used in flows must reference M365 GCC High endpoints, not commercial
+**Relevant secure-framework considerations:**
+- Development environments for GCC High projects may be in commercial environments for developer tooling access only when policy allows; otherwise keep development inside the authorized boundary
+- Any external integration (API, webhook, connector) called from GCC High flows should reside in an authorized boundary or have documented authorization for data egress
+- Custom connectors used by `_Automation` should point to authorized endpoints for the target boundary
+- Microsoft 365 connectors (SharePoint, Teams, Exchange) used in flows should reference the endpoint family approved for the target tenant
 
-**Data flow documentation requirement:** For ATO packages, document the data flow from GCC High Power Platform to every external system called by `_Automation` layer flows. Undocumented external data flows are a common ATO finding.
+**Data flow documentation:** For ATO or comparable security packages, document the data flow from Power Platform to every external system called by `_Automation` layer flows. Undocumented external data flows are a common finding.
 
 ### 9.4 Managed vs. Unmanaged Solution Rules Per Environment Tier
 
@@ -1696,7 +1707,7 @@ GCC High environments are physically isolated in Azure Government regions (USGov
    - Unique Name: `{projectname}` (lowercase, no spaces)
    - Prefix: `{2–5 char lowercase prefix}`
 
-2. **Create the required solution shells** in Dev (empty, linked to publisher)
+2. **Create the baseline solution shells** in Dev (empty, linked to publisher)
    - `{ProjectCode}_Security`
    - `{ProjectCode}_Core`
    - `{ProjectCode}_Automation` (only when automation assets exist)
@@ -1742,7 +1753,7 @@ GCC High environments are physically isolated in Azure Government regions (USGov
 
 4. Build `_Automation` if automation assets exist:
    - Create flows in Dev, added to the `_Automation` solution
-   - Configure connection references using service accounts
+   - Configure connection references using the approved identity pattern: dedicated service account by default, or documented delegated fallback when unavailable
    - Export, unpack, commit
 
 5. Build `_UI` / `_UI_Operations` / `_UI_Admin`:
@@ -1766,8 +1777,8 @@ GCC High environments are physically isolated in Azure Government regions (USGov
 |---|---|---|
 | Adding a column in `_UI` | Schema contamination; `_UI` managed imports fail in upper environments | Run solution checker before export; review `git diff` for unexpected `Entities/` content inside `_UI` solution folder |
 | Committing `_Config` | Secrets or environment-specific values in source control | `.gitignore` excludes `_Config`; add a pre-commit hook that checks for `Config` solution directories |
-| Personal credentials in connection references | Flows break when user's account is rotated or deprovisioned | Policy: only service accounts in connection references; enforce in pipeline connection validation step |
-| Deploying `_Automation` before Config Gate validation | Flows fail on import or activation due to missing env var values | Pipeline gate: validate required values and connection bindings before automation import or activation |
+| Personal credentials in connection references | Flows break when user's account is rotated or deprovisioned | Use a dedicated service account by default; when unavailable, use a documented least-privilege delegated identity with owner, rotation, and environment-register evidence |
+| Deploying `_Automation` before Config Gate validation | Flows fail on import or activation due to missing env var values | Pipeline gate: validate necessary values and connection bindings before automation import or activation |
 | Wrong publisher prefix | Schema naming inconsistency; solution check failures | Set publisher once at project start; document in `.ai/conventions.md`; do not change |
 | App registration in wrong tenant (GCC High) | PAC CLI auth fails; pipeline cannot connect to GCC High environment | Use `portal.azure.us` for GCC High app registrations; verify `--cloud UsGovHigh` flag in all PAC auth commands |
 | Deploying managed solution to Dev | Blocks future unmanaged imports of the same solution | Dev always gets unmanaged; enforced by pipeline parameter that maps environment to package type |
@@ -1785,7 +1796,7 @@ GCC High environments are physically isolated in Azure Government regions (USGov
 - [ ] System Administrator role assigned to service principal in target environment
 - [ ] Azure DevOps variable groups created and populated
 - [ ] Pipeline service connections configured and connection test passing
-- [ ] Connection references in target environment bound to service account connections (not personal)
+- [ ] Connection references in target environment bound to the approved identity pattern: dedicated service account by default, or documented delegated fallback when unavailable
 - [ ] Environment URL in pipeline variables matches target (`.crm.microsoftdynamics.us` for GCC High)
 - [ ] No schema components found in `_UI` solution (verified with solution checker or diff review)
 - [ ] Solution versions set correctly in pipeline variables
@@ -1805,7 +1816,7 @@ Export the monolithic solution and unpack it. Catalog all components by layer:
 - Environment variable definitions → `_Core`
 - Environment variable values → Config Gate values (optional unmanaged `_Config` only with justification)
 
-**Step 2: Create the required solution shells**
+**Step 2: Create the baseline solution shells**
 
 Create empty solutions for the mandatory layers and any justified optional layers in the Dev environment, linked to the same publisher as the monolithic solution.
 
@@ -1838,7 +1849,7 @@ Run the bulk export script. Review the diff carefully. Commit.
 
 **Step 9: Plan the cutover**
 
-The monolithic solution must be deleted from Test and Prod before the LP-ALM layers are deployed (to avoid component ownership conflicts between managed solutions). Plan a maintenance window. Cutover sequence:
+Plan to delete the monolithic solution from Test and Prod before the LP-ALM layers are deployed to avoid component ownership conflicts between managed solutions. Use a maintenance window. Cutover sequence:
 
 1. Export all data (backup)
 2. Remove monolithic managed solution from Test/Prod (deletion propagates)
@@ -1874,19 +1885,19 @@ Technical talking points:
 - Pipeline architecture (per-layer jobs, ADO variable groups, dependency gates)
 - PAC CLI export/unpack/commit cycle
 - Managed solution enforcement and rollback
-- GCC High service principal setup and cloud flag
+- Sovereign cloud service principal setup and cloud flag examples
 - Branch strategy and PR gates
 
 #### To Security Officers
 
-> "LP-ALM implements a security-first deployment model aligned with NIST 800-53 AC-2, AC-3, CM-2, CM-3, CM-6, and SA-3. Security roles are the first deployment action in every environment — no data structure can exist without a corresponding access control structure. Environment-specific configuration values are excluded from source control, controlled through approved secret-backed deployment mechanisms, and evidenced by a metadata-only environment configuration register plus approval and audit logs. All production changes go through a pipeline with mandatory PR review. The architecture supports GCC High FedRAMP requirements including service principal-only authentication and sovereign cloud endpoint enforcement."
+> "LP-ALM implements a security-first deployment model aligned with NIST 800-53 AC-2, AC-3, CM-2, CM-3, CM-6, and SA-3. Security roles are the first deployment action in every environment — no data structure can exist without a corresponding access control structure. Environment-specific configuration values are excluded from source control, controlled through approved secret-backed deployment mechanisms, and evidenced by a metadata-only environment configuration register plus approval and audit logs. Production changes go through a governed pipeline with PR review. The architecture supports secure deployments in regulated contexts, including GCC High, by documenting service principal authentication, endpoint selection, and approved identity fallbacks."
 
 Security talking points:
 - NIST control mapping (see Section 3.4)
 - Zero-secrets-in-repo guarantee
 - Managed solution change control
 - Service principal authentication model
-- FedRAMP / GCC High compliance posture and data residency
+- FedRAMP / sovereign cloud compliance posture and data residency examples
 
 ### 11.2 Differentiation from Microsoft's Default ALM Guidance
 
@@ -1898,7 +1909,7 @@ LP-ALM extends Microsoft's guidance in three meaningful ways:
 
 2. **Config exclusion is an explicit protocol, not a default.** Microsoft's ALM documentation includes environment variables as a standard solution component. LP-ALM explicitly excludes configuration values from source control, uses the Config Gate and environment configuration register as the governed default, and allows unmanaged `_Config` only as a justified high-control evidence pattern.
 
-3. **GCC High sovereign cloud specificity.** Microsoft's general Power Platform ALM guidance is written for commercial environments. LP-ALM explicitly addresses `.crm.microsoftdynamics.us` endpoints, Azure Government app registrations, and service principal requirements specific to GCC High.
+3. **Sovereign cloud implementation examples.** Microsoft's general Power Platform ALM guidance is written primarily for commercial environments. LP-ALM addresses endpoint selection, Azure Government app registrations, and service principal patterns using GCC High as an example regulated context.
 
 LP-ALM is compatible with Microsoft's Power Platform CoE Starter Kit and does not conflict with Microsoft's ALM Accelerator — it can be adopted alongside both.
 
@@ -1936,7 +1947,7 @@ LP-ALM is not appropriate for:
 
 ### 12.1 What LP-ALM Governs (and What It Does Not)
 
-LP-ALM governs what is **inside a solution artifact** and how that artifact moves between environments. It does not govern the platform layer — the tenant-level, environment-level, and infrastructure configuration that must exist before LP-ALM pipelines can run successfully.
+LP-ALM governs what is **inside a solution artifact** and how that artifact moves between environments. It does not govern the platform layer — the tenant-level, environment-level, and infrastructure configuration that should exist, or have an approved fallback, before LP-ALM pipelines run successfully.
 
 This boundary is intentional. Platform governance responsibilities — DLP policies, environment provisioning, Managed Environments configuration, monitoring infrastructure, BCDR — are typically owned by a central Power Platform admin team and are documented in Microsoft's own reference frameworks. Reproducing that guidance here would create a maintenance burden and risk drift from Microsoft's authoritative documentation.
 
@@ -1946,17 +1957,17 @@ LP-ALM is **composable with** Microsoft's platform governance frameworks. It sit
 
 ### 12.2 Platform Prerequisites
 
-The following must be true in each target environment before LP-ALM pipelines will operate correctly. These are platform admin responsibilities, not LP-ALM responsibilities.
+The following prerequisites should be confirmed in each target environment before LP-ALM pipelines run. These are platform admin responsibilities, not LP-ALM responsibilities; if a prerequisite is unavailable, document the approved platform fallback before deployment.
 
 | Prerequisite | Why LP-ALM Depends On It |
 |---|---|
 | Dataverse provisioned in the environment | All five LP-ALM layers target Dataverse; no Dataverse means no deployment target |
-| DLP policies configured | Connection references in `_Automation` will fail activation if required connectors are blocked or miscategorized |
-| Dataverse auditing enabled | Required for CM-3 change control evidence; must be set post-provisioning (off by default) |
+| DLP policies configured | Connection references in `_Automation` will fail activation if needed connectors are blocked or miscategorized |
+| Dataverse auditing enabled | Recommended for CM-3 change control evidence; set post-provisioning where policy permits (off by default) |
 | Managed Environments enabled (Test, Prod) | Enforces the managed solution requirement; without it, the platform does not block direct ad-hoc customization |
 | AAD security group mapped to environment | Controls who can access the environment; LP-ALM security roles operate within this boundary |
-| Service principal created and assigned as application user | LP-ALM pipelines authenticate exclusively via service principal; this must exist before the first pipeline run |
-| ADO variable groups populated | Variable groups must contain environment URLs, client IDs, and key vault secret references before pipelines can execute |
+| Service principal created and assigned as application user | Recommended default for LP-ALM pipelines; if unavailable, document the approved authentication fallback before the first pipeline run |
+| ADO variable groups populated | Variable groups contain environment URLs, client IDs, and key vault secret references before pipelines execute |
 
 ---
 
@@ -2126,7 +2137,7 @@ The Azure infrastructure pipeline (`deploy-azure-infra.yml`) runs independently 
 | Azure Function keys / API keys | Key Vault / secret-backed configuration value only; rotate per environment; never in source control |
 | Custom connector API definition | May include base URL — use an environment variable reference; do not hard-code per-environment URLs in the connector definition |
 | Pipeline service principal access to Azure | Separate Azure SP with least-privilege role on the specific Azure resource; do not reuse the Power Platform pipeline SP |
-| GCC High to Azure Government | Ensure Azure resources are deployed to Azure Government (`*.usgovcloudapi.net`) to match the data boundary; commercial Azure endpoints are not authorized for GCC High workloads |
+| GCC High to Azure Government | Prefer Azure Government resources (`*.usgovcloudapi.net`) to match the data boundary; if an endpoint crosses boundaries, document the authorization and data-flow evidence |
 
 ---
 

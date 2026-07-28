@@ -9,7 +9,7 @@ permalink: /onboarding/
 # LP-ALM Onboarding Checklist
 
 > Use this checklist when onboarding a new team member, setting up a new project environment,
-> or validating that a project is fully LP-ALM compliant before the first pipeline run.
+> or validating that a project follows the LP-ALM secure baseline before the first pipeline run.
 
 ---
 
@@ -50,7 +50,7 @@ permalink: /onboarding/
 - [ ] Read [LP-ALM.md](LP-ALM.md) — full methodology (Section 2 at minimum)
 - [ ] Review [docs/security-role-matrix-template.md](docs/security-role-matrix-template.md)
 - [ ] Review [docs/component-placement-decision-tree.md](docs/component-placement-decision-tree.md)
-- [ ] Confirm the non-negotiable government floor:
+- [ ] Confirm the secure ALM baseline:
   - `_Security` deploys first
   - `_Core` owns all schema
   - UI solutions contain no tables, columns, relationships, or other schema
@@ -85,7 +85,7 @@ permalink: /onboarding/
   - [ ] **Enterprise** — Standard + warranted optional layers such as `{ProjectCode}_Integration`, `{ProjectCode}_UI_Admin`, reporting, or test data
 - [ ] ADR includes selected tier, facts supporting the tier, rejected alternatives, and evidence location.
 - [ ] Confirm **Minimum** is used only when there are no external integrations, no cross-boundary or CUI data movement, and no privileged admin UI.
-- [ ] Confirm **Enterprise** is used when CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, or external ATO dependencies exist.
+- [ ] Confirm **Enterprise** is selected when CUI exchange, shared connection references, cross-system orchestration, separately governed integrations, or external ATO dependencies warrant it.
 
 - [ ] Create publisher in Dev:
   - Display Name: `{Project Name} Platform`
@@ -118,7 +118,7 @@ permalink: /onboarding/
 
 ### Phase 3: Service Principal Setup
 
-**GCC High:**
+**GCC High example (adapt portal, cloud, and authority values for the target environment):**
 - [ ] Create App Registration in Azure Government (`portal.azure.us`):
   - Name: `{ProjectCode}-Pipeline-SP`
   - Supported account types: Single tenant
@@ -128,10 +128,21 @@ permalink: /onboarding/
   Power Platform Admin Center → Environments → {env} → Settings → Users → Application Users → New
   ```
 - [ ] Assign System Administrator role to the Application User in each environment
-- [ ] Confirm pipeline authentication uses service-principal auth with `--cloud UsGovHigh`
+- [ ] Confirm pipeline authentication uses service-principal auth with the target-cloud flag (for GCC High, `--cloud UsGovHigh`)
 - [ ] Document App ID / tenant references in `docs/environment-register-template.md` as metadata only (no secrets or raw values in this file)
 
-### Phase 4: Azure DevOps Variable Groups
+### Phase 4: Connection Reference Identity Planning
+
+- [ ] Use dedicated service account connections as the recommended default for connection references.
+- [ ] If dedicated service accounts are not available, document the approved fallback before deployment:
+  - [ ] least-privilege delegated identity selected for the connector
+  - [ ] owning team or steward recorded, with backup ownership
+  - [ ] rotation or periodic review cadence recorded
+  - [ ] approval/change reference captured in the Environment Register
+- [ ] Confirm no raw credentials, connection strings, or secret values are recorded in docs or source control.
+- [ ] Update the Connection Reference Identity Register in `docs/environment-register-template.md` with the default or fallback evidence.
+
+### Phase 5: Azure DevOps Variable Groups
 
 - [ ] Create variable group `{ProjectCode}-Common`:
   - `ProjectCode` = `{ProjectCode}`
@@ -154,7 +165,7 @@ permalink: /onboarding/
 - [ ] Grant pipeline permission to each variable group in Azure DevOps
 - [ ] Confirm each variable group entry is reflected in the Configuration Evidence Register by source variable name / Key Vault reference only, not value
 
-### Phase 5: Azure DevOps Pipeline Setup
+### Phase 6: Azure DevOps Pipeline Setup
 
 - [ ] Create pipeline from `pipelines/pr-validation.yml`
   - Name: `{ProjectCode} - PR Validation`
@@ -171,7 +182,7 @@ permalink: /onboarding/
 - [ ] Create Azure DevOps Environment `{ProjectCode}-Test` with no approval gates
 - [ ] Create Azure DevOps Environment `{ProjectCode}-Prod` with manual approval gate (require one approver)
 
-### Phase 6: Branch Protection
+### Phase 7: Branch Protection
 
 - [ ] Protect `main` branch:
   - Require PR review (minimum 1 reviewer)
@@ -192,7 +203,7 @@ Complete this checklist before running the deploy pipeline to any environment fo
 - [ ] `{ProjectCode}_Security` exported, unpacked, and committed to source control
 - [ ] `{ProjectCode}_Core` exported, unpacked, and committed to source control
 - [ ] `{ProjectCode}_Automation` exported, unpacked, and committed to source control when automation exists
-- [ ] `{ProjectCode}_Integration` exported, unpacked, and committed to source control when the Enterprise tier requires it
+- [ ] `{ProjectCode}_Integration` exported, unpacked, and committed to source control when the selected tier includes it
 - [ ] `{ProjectCode}_UI_Operations` exported, unpacked, and committed to source control when user-facing artifacts exist
 - [ ] `{ProjectCode}_UI_Admin` exported, unpacked, and committed to source control when privileged admin UI exists
 - [ ] `_Config` **NOT** in source control (verify with `git status`)
@@ -204,22 +215,23 @@ Complete this checklist before running the deploy pipeline to any environment fo
 
 - [ ] Service principal Application User exists in target environment
 - [ ] System Administrator role assigned to Application User in target environment
-- [ ] Target environment URL uses the GCC High domain `.crm.microsoftdynamics.us`
+- [ ] Target environment URL matches the approved cloud domain (for GCC High, `.crm.microsoftdynamics.us`)
 - [ ] Test and Prod deployment package type is managed only; Dev deployment package type is unmanaged
 - [ ] Config Gate confirms all required environment variables have approved source variable names / Key Vault references
 - [ ] Config Gate confirms no raw values, secrets, tenant secrets, connection strings, or generated settings files are committed or published as artifacts
 - [ ] Configuration Evidence Register has current owner, required/optional, secret classification, approval/change reference, and last-reviewed date for each required value
-- [ ] Connection references in target environment bound to service account connections (not personal)
-- [ ] Service account connections verified (not using expiring personal credentials)
-- [ ] No personal email addresses in any connection
+- [ ] Connection references in target environment use dedicated service account connections by default.
+- [ ] If service accounts are unavailable, each connection reference has an approved fallback: least-privilege delegated identity, documented owner/steward, backup ownership, rotation or review cadence, and Environment Register evidence.
+- [ ] Fallback identities are verified as controlled exceptions and are not undocumented personal credentials.
+- [ ] No personal email addresses appear in connection binding evidence; use owning team, role, or approved delegated identity references instead.
 - [ ] If an unmanaged `_Config` solution is used as an auditor-driven exception, its manual application is justified and logged in the Optional `_Config` Application Log with names and approvals only
 
 ### Pipeline Readiness
 
 - [ ] Azure DevOps variable group `{ProjectCode}-{TargetEnv}` populated with approved variables and secret-backed references
 - [ ] Pipeline service connection configured and connection test passes
-- [ ] Environment URL in variable group matches actual target URL (`.crm.microsoftdynamics.us` for GCC High)
-- [ ] Correct `--cloud UsGovHigh` flag confirmed in pipeline auth steps
+- [ ] Environment URL in variable group matches the actual target URL (`.crm.microsoftdynamics.us` for GCC High examples)
+- [ ] Correct cloud flag confirmed in pipeline auth steps (`--cloud UsGovHigh` for GCC High examples)
 - [ ] Generated settings file, if used by the Config Gate, is ephemeral, deleted after use, and never published as an artifact
 
 ### Solution Version Check
@@ -240,8 +252,8 @@ Complete this checklist before running the deploy pipeline to any environment fo
 1. Confirm every required environment variable definition exists in `{ProjectCode}_Core`.
 2. Confirm each required value has a source variable name or Key Vault reference in the Configuration Evidence Register.
 3. Confirm secret classifications are correct and raw values are not recorded in source, docs, logs, or artifacts.
-4. Confirm connection references are bound to service account or other approved non-personal connections.
-5. Confirm GCC High PAC authentication uses `--cloud UsGovHigh`.
+4. Confirm connection references use dedicated service account connections by default, or an approved fallback with least-privilege delegated identity, documented owner/steward, backup ownership, review/rotation cadence, and Environment Register evidence.
+5. Confirm PAC authentication uses the target-cloud flag (`--cloud UsGovHigh` for GCC High examples).
 6. Confirm Test and Prod receive managed solutions only.
 7. Confirm the deployment run, approvals, and variable / Key Vault audit evidence are linked from the register.
 

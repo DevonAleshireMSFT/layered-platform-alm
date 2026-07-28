@@ -55,7 +55,7 @@ Example: sys_assetname
 
 ## Primary Name Column Convention
 
-The primary name column must be named `{prefix}_{entityname}name`:
+Use `{prefix}_{entityname}name` for the primary name column:
 
 ```
 Table:               sys_asset
@@ -162,13 +162,15 @@ Examples:
   AGENCYNAME-Test
   AGENCYNAME-Prod
 
-GCC High URLs:
+GCC High URL examples:
   Dev:  https://agencyname-dev.crm.microsoftdynamics.us
   Test: https://agencyname-test.crm.microsoftdynamics.us
   Prod: https://agencyname.crm.microsoftdynamics.us
 ```
 
-**Never hardcode URLs in source control.** URLs are Azure DevOps variable group values or deployment-controlled Config Gate values.
+Do not hardcode environment URLs in source control. Store them as Azure DevOps variable group values or deployment-controlled Config Gate values.
+
+For sovereign or regulated environments, use the URL domain and PAC CLI cloud flag that match the tenant. GCC High / IL4 / IL5 contexts are examples where `.crm.microsoftdynamics.us` and `--cloud UsGovHigh` are commonly used.
 
 ---
 

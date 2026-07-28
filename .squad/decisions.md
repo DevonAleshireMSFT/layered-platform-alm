@@ -28,3 +28,22 @@
 **What:** Do NOT name the user-facing UI solution `_UI_User` (the word "User" causes a previously-noted issue — likely collision/confusion with the Dataverse `systemuser` / "User" concept). Use **`{ProjectCode}_UI_Operations`** for the operational/user-facing UI solution instead. Keep `{ProjectCode}_UI_Admin` for the admin UI. Naming pattern for the UI split is therefore `_UI_Operations` + `_UI_Admin`.
 **Why:** User directive during LP-ALM refinement — "Do not use UI_User ... per the previous noted issue with User." Applies framework-wide and in all LP-ALM docs, templates, and pipelines going forward.
 
+
+### 2026-07-27: LP-ALM mandate language reframe
+
+**By:** Link
+**What:** LP-ALM mandate language now preserves framework-owned invariants as mandatory while softening externally owned identity and cloud controls into recommendations with documented fallback paths.
+**Why:** The methodology should remain enforceable for LP-ALM-owned controls without over-mandating constraints owned by external platform, tenant, or organizational authorities.
+
+### 2026-07-27: Government documentation mandate reframe
+
+**By:** Niobe
+**What:** Government and compliance docs are reframed from GCC High-specific mandates into secure-environment recommendations, including service-account fallback evidence patterns.
+**Why:** LP-ALM should support GCC High, IL4, IL5, FedRAMP, and adjacent secure deployments without implying every environment has identical mandatory platform requirements.
+
+### 2026-07-27: AI grounding files mandate reframe
+
+**By:** Morpheus
+**What:** AI grounding files (`.ai/context.md`, `.ai/layers.md`, `.ai/conventions.md`, `.ai/schema.md`) now mirror LP-ALM Authoring Principles: recommend rather than mandate externally owned controls, document service-account fallback, and frame GCC High, IL4, and IL5 as example secure-environment contexts.
+**Why:** Keeps AI guidance aligned with framework-owned invariants while avoiding overreach into tenant, identity, and sovereign-cloud policy.
+

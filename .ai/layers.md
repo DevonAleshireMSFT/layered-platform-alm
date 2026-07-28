@@ -17,13 +17,13 @@
 
 ## Architecture Tiers
 
-| Tier | Required shape | Notes |
+| Tier | Baseline shape | Notes |
 |---|---|---|
 | Minimum | `_Security` + `_Core` + `_UI_Operations` | Allowed only when there are no external integrations, no cross-boundary/CUI data movement, and no privileged admin UI. |
 | Standard | Minimum + `_Automation` | Use when flows, connectors, connection references, scheduled jobs, or automation assets exist. |
 | Enterprise | Standard + `_Integration` + multiple UIs as warranted | Use for shared integrations, cross-system orchestration, external ATO dependencies, CUI exchange, or admin separation. |
 
-**Government floor:** Security is separate and first; Core is the only schema layer; UI is schema-free; Test/Prod are managed-only; configuration values and secrets are never committed.
+**Secure-environment floor:** Security is separate and first; Core is the only schema layer; UI is schema-free; Test/Prod are managed-only; configuration values and secrets are never committed. Sovereign and regulated contexts such as GCC High, IL4, and IL5 are examples where these controls are often expected.
 
 ---
 
@@ -45,7 +45,7 @@
 
 **Deploys:** First, always, in every environment
 **Source control:** ✅ Yes
-**Pipeline:** ✅ Yes (requires System Administrator service principal for `prvWriteRole`)
+**Pipeline:** ✅ Yes (uses a System Administrator service principal for `prvWriteRole`)
 **Solution type in upper environments:** Managed
 
 ---
@@ -90,6 +90,7 @@
 - Connection bindings
 - Non-secret environment configuration register metadata
 - Secret-backed deployment inputs from approved stores / variable groups
+- Connection references SHOULD use dedicated service accounts by default. If service accounts are unavailable, use a least-privilege delegated identity with documented ownership, credential rotation, approval authority, and environment-register evidence.
 
 **Rules:**
 - `_Config` is not required and must not be presented as a mandatory layer.
@@ -117,7 +118,7 @@
 - Schema (→ `_Core`)
 - UI artifacts (→ UI)
 
-**Deploys:** After `_Core`; Config Gate before activation when values / bindings are required
+**Deploys:** After `_Core`; Config Gate before activation when values / bindings are needed
 **Source control:** ✅ Yes
 **Pipeline:** ✅ Yes
 **Solution type in upper environments:** Managed
@@ -178,7 +179,7 @@
 - Environment variable values (→ Config Gate)
 - Integrity/schema-adjacent web resources used by Core forms (→ `_Core`)
 
-**Deploys:** After required dependencies; both UI solutions can deploy independently in the UI phase
+**Deploys:** After declared dependencies; both UI solutions can deploy independently in the UI phase
 **Source control:** ✅ Yes
 **Pipeline:** ✅ Yes
 **Solution type in upper environments:** Managed
@@ -192,7 +193,7 @@
 
 **Create when:** Reporting artifacts need separate ownership, release cadence, audit review, or governed distribution.
 
-**Dependencies:** `_Core`; `_Security` when row-level access or governed distribution is required.
+**Dependencies:** `_Core`; `_Security` when row-level access or governed distribution is needed.
 **Source control:** ✅ Yes
 **Pipeline:** ✅ Yes, if promoted as a managed solution
 
@@ -232,11 +233,11 @@
 | `_Security` | Nothing | First deployed layer in every tier. Can deploy to an empty environment. |
 | `_Core` | `_Security` | Owns all schema and environment variable definitions. |
 | Config Gate | `_Security`, `_Core` | Default pattern. Not a solution. Values and bindings must exist before dependent layers activate. |
-| `_Integration` (optional) | `_Security`, `_Core`; Config Gate before activation when values / bindings are required | Use for shared or independently governed integrations. |
+| `_Integration` (optional) | `_Security`, `_Core`; Config Gate before activation when values / bindings are needed | Use for shared or independently governed integrations. |
 | `_Automation` (optional) | `_Security`, `_Core`; `_Integration` when consuming shared integration components; Config Gate before activation | Use for flows, connection references, custom connectors, and scheduled jobs. |
 | `_UI_Operations` | `_Security`, `_Core`; `_Automation` optional; Config Gate when consuming values / bindings | Operational user-facing applications. Must remain schema-free. |
 | `_UI_Admin` (optional) | `_Security`, `_Core`; `_Automation` optional; Config Gate when consuming values / bindings | Admin UI, independent of `_UI_Operations`; use when criteria justify split. |
-| `_Reporting` (optional) | `_Core`; `_Security` when row-level access or governed distribution is required | Use for substantial reporting artifacts with a distinct lifecycle. |
+| `_Reporting` (optional) | `_Core`; `_Security` when row-level access or governed distribution is needed | Use for substantial reporting artifacts with a distinct lifecycle. |
 | `_TestData` (optional) | `_Security`, `_Core`; `_Automation` optional | Use only for synthetic test data and validation assets unless production data use is authorized. |
 
 ---

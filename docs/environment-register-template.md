@@ -23,6 +23,10 @@ permalink: /environment-register/
 > settings**. Now that `_Config` is not a mandated solution, this register proves
 > configuration-value governance by recording metadata only and linking to the approved
 > source of values, approvals, and deployment evidence.
+>
+> **Example context:** The template values below show GCC High / `UsGovHigh` examples.
+> Replace cloud, URL, region, and portal references for commercial, GCC, DoD, or other
+> secure environments as appropriate.
 
 ---
 
@@ -44,10 +48,10 @@ permalink: /environment-register/
 |---|---|
 | **Display Name** | `{OrgCode}-Dev` |
 | **Environment ID** | *(retrieve from admin center — do not hardcode in pipelines)* |
-| **URL** | `https://{org}-dev.crm.microsoftdynamics.us` |
-| **Cloud** | GCC High (`UsGovHigh`) |
+| **URL** | `https://{org}-dev.crm.microsoftdynamics.us` *(GCC High example; replace for target cloud)* |
+| **Cloud** | GCC High (`UsGovHigh`) example — replace for target cloud |
 | **Type** | Sandbox |
-| **Region** | USGov Virginia / USGov Texas |
+| **Region** | USGov Virginia / USGov Texas *(example)* |
 | **Dataverse** | Yes |
 | **Owner / Admin Contact** | `{name@agency.gov}` |
 | **Service Principal (App ID)** | ADO variable / Key Vault reference only — value stored outside this file |
@@ -65,10 +69,10 @@ permalink: /environment-register/
 |---|---|
 | **Display Name** | `{OrgCode}-Test` |
 | **Environment ID** | *(retrieve from admin center)* |
-| **URL** | `https://{org}-test.crm.microsoftdynamics.us` |
-| **Cloud** | GCC High (`UsGovHigh`) |
+| **URL** | `https://{org}-test.crm.microsoftdynamics.us` *(GCC High example; replace for target cloud)* |
+| **Cloud** | GCC High (`UsGovHigh`) example — replace for target cloud |
 | **Type** | Sandbox |
-| **Region** | USGov Virginia / USGov Texas |
+| **Region** | USGov Virginia / USGov Texas *(example)* |
 | **Dataverse** | Yes |
 | **Owner / Admin Contact** | `{name@agency.gov}` |
 | **Service Principal (App ID)** | ADO variable / Key Vault reference only — value stored outside this file |
@@ -87,10 +91,10 @@ permalink: /environment-register/
 |---|---|
 | **Display Name** | `{OrgCode}` |
 | **Environment ID** | *(retrieve from admin center)* |
-| **URL** | `https://{org}.crm.microsoftdynamics.us` |
-| **Cloud** | GCC High (`UsGovHigh`) |
+| **URL** | `https://{org}.crm.microsoftdynamics.us` *(GCC High example; replace for target cloud)* |
+| **Cloud** | GCC High (`UsGovHigh`) example — replace for target cloud |
 | **Type** | Production |
-| **Region** | USGov Virginia / USGov Texas |
+| **Region** | USGov Virginia / USGov Texas *(example)* |
 | **Dataverse** | Yes |
 | **Owner / Admin Contact** | `{name@agency.gov}` |
 | **Service Principal (App ID)** | ADO variable / Key Vault reference only — value stored outside this file |
@@ -106,14 +110,38 @@ permalink: /environment-register/
 ## Service Principal Inventory
 
 > App registrations used for pipeline automation. Secrets are stored in Azure Key Vault
-> or Azure DevOps variable groups — not in this file.
+> or Azure DevOps variable groups — not in this file. For security-role deployment,
+> Dataverse requires the pipeline application user to have the built-in System
+> Administrator role because `prvWriteRole` cannot be granted through a custom role.
 
 | Environment | App Name | App ID Reference | Tenant Reference | Role in Environment | Created By | Expires |
 |---|---|---|---|---|---|---|
 | All | `{ProjectCode}-Pipeline-SP` | ADO variable / Key Vault reference only | ADO variable / Key Vault reference only | Built-in System Administrator | | `YYYY-MM-DD` |
 
-> **GCC High Note:** App registrations for GCC High environments must be created in the
-> Azure Government tenant (`portal.azure.us`), not the commercial Azure portal.
+> **GCC High example:** App registrations for GCC High environments are created in the
+> Azure Government tenant (`portal.azure.us`). Use the portal and authority that match
+> the target cloud for non-GCC-High environments.
+
+---
+
+## Connection Reference Identity Register
+
+> Dedicated service accounts are the recommended default for connection references because
+> they separate automation ownership from individual users. If a program cannot provision
+> dedicated service accounts, use an approved least-privilege delegated identity instead
+> and document the fallback evidence below. Do not store credentials, connection strings,
+> or raw secret values in this register.
+
+| Environment | Connection Reference | Recommended Default | Approved Fallback If Service Account Unavailable | Owner / Steward | Rotation or Review Cadence | Evidence Reference |
+|---|---|---|---|---|---|---|
+| Dev | `{ProjectCode}-{ConnectorName}` | Dedicated service account connection | Least-privilege delegated identity approved for Dev only; owner and review date documented | `{team-or-role}` | `YYYY-MM-DD` / per policy | `{approval / work item / review}` |
+| Test | `{ProjectCode}-{ConnectorName}` | Dedicated service account connection | Least-privilege delegated identity approved by platform owner; no personal ownership without documented backup | `{team-or-role}` | `YYYY-MM-DD` / per policy | `{approval / work item / review}` |
+| Prod | `{ProjectCode}-{ConnectorName}` | Dedicated service account connection | Least-privilege delegated identity with named steward, backup owner, rotation plan, and change approval | `{team-or-role}` | `YYYY-MM-DD` / per policy | `{approval / work item / review}` |
+
+Fallback identities should be treated as controlled exceptions: assign only the privileges
+needed by the connector, avoid personal email ownership in connection binding evidence,
+record the owning team or role, and review or rotate on the same cadence used for
+service-account connections.
 
 ---
 
@@ -137,6 +165,7 @@ permalink: /environment-register/
 | Secret storage audit trail | Azure Key Vault / Azure DevOps library audit logs | `{audit-log-reference}` |
 | Deployment run history | Azure DevOps pipeline run | `{pipeline-run-reference}` |
 | Periodic review | Review record / work item | `{review-reference}` |
+| Connection identity approval / fallback review | Azure DevOps / CAB / change system | `{connection-identity-review-reference}` |
 
 ---
 

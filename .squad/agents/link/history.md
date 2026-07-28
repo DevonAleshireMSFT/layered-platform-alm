@@ -25,3 +25,6 @@
 📌 Team update (2026-07-27T08:06:36-07:00): Completed the LP-ALM recommendation review; `docs/lp-alm-refinement-plan.md` is the deliverable.
 
 📌 Team update (2026-07-27T08:52:59.7276295-07:00): LP-ALM implementation batch shipped in commit d4498b7; LP-ALM.md refined to invariant model, Config Gate, tiers, UI Operations/Admin, NIST/ATO; docs/lp-alm-refinement-plan.md finalized. — recorded by Scribe
+
+📌 Team update (2026-07-27T10:43:22.4875718-07:00): Documentation reframe batch shipped on branch chore/docs-reframe-mandates; PR #20 opened. LP-ALM.md now distinguishes framework-owned invariants from externally-owned recommendation/fallback guidance. — recorded by Scribe
+
